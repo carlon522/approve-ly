@@ -353,7 +353,7 @@ export default function PortalClient({ initialCampaignId }: { initialCampaignId?
       setActivityList(payload.activity);
       setCampaignList(payload.campaigns);
       setCommentList(payload.comments);
-      setContentList(payload.contentItems);
+      setContentList(syncCommentCounts(payload.contentItems, payload.comments));
       setFolderList(payload.folders);
       setSession({
         email: payload.profile.email,
@@ -406,7 +406,7 @@ export default function PortalClient({ initialCampaignId }: { initialCampaignId?
         setActivityList(payload.activity);
         setCampaignList(payload.campaigns);
         setCommentList(payload.comments);
-        setContentList(payload.contentItems);
+        setContentList(syncCommentCounts(payload.contentItems, payload.comments));
         setFolderList(payload.folders);
         setSession((current) =>
           current
@@ -3062,6 +3062,18 @@ function readDemoSession(): Session | null {
     window.sessionStorage.removeItem("approveLyDemoSession");
     return null;
   }
+}
+
+function syncCommentCounts(items: PortalContent[], comments: PortalComment[]) {
+  return items.map((item) => {
+    const relatedComments = comments.filter((comment) => comment.contentId === item.id);
+
+    return {
+      ...item,
+      comments: relatedComments.length,
+      unresolved: relatedComments.filter((comment) => comment.status === "Open").length,
+    };
+  });
 }
 
 async function apiRequest<T>(
