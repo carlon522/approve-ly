@@ -44,6 +44,7 @@ import {
   useRef,
   useState,
 } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   campaigns,
@@ -3026,8 +3027,18 @@ function PlatformPreview({
   const tabs: Platform[] = ["Instagram", "TikTok", "YouTube Shorts"];
   const [playing, setPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const isVideoPreview = Boolean(
+    previewUrl &&
+      (item.type === "Video" ||
+        item.mimeType?.startsWith("video/") ||
+        /\.(mp4|mov|webm)(?:\?|$)/i.test(previewUrl)),
+  );
 
   const togglePlayback = () => {
+    if (!isVideoPreview) {
+      return;
+    }
+
     if (!videoRef.current) {
       setPlaying((value) => !value);
       return;
@@ -3064,7 +3075,7 @@ function PlatformPreview({
               background: `radial-gradient(circle at 35% 20%, ${item.accent}, transparent 28%), linear-gradient(160deg, #121212 10%, ${item.accent} 48%, #18181b 100%)`,
             }}
           />
-          {previewUrl ? (
+          {previewUrl && isVideoPreview ? (
             <video
               className="absolute inset-0 z-[1] size-full object-cover"
               loop
@@ -3075,6 +3086,15 @@ function PlatformPreview({
               preload="metadata"
               ref={videoRef}
               src={previewUrl}
+            />
+          ) : previewUrl ? (
+            <Image
+              alt={`${item.title} preview`}
+              className="object-cover"
+              fill
+              sizes="330px"
+              src={previewUrl}
+              unoptimized
             />
           ) : null}
           {previewLoading ? (
@@ -3102,14 +3122,16 @@ function PlatformPreview({
             <PreviewIcon icon={MessageCircle} label={String(item.comments)} />
             <PreviewIcon icon={Send} label="Share" />
           </div>
-          <button
-            aria-label="Play preview"
-            className="absolute left-1/2 top-1/2 z-20 grid size-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-md bg-white/20 backdrop-blur transition hover:bg-white/30"
-            onClick={togglePlayback}
-            type="button"
-          >
-            {playing ? <Check aria-hidden className="size-7 text-white" /> : <Play aria-hidden className="size-7 fill-white text-white" />}
-          </button>
+          {isVideoPreview ? (
+            <button
+              aria-label="Play preview"
+              className="absolute left-1/2 top-1/2 z-20 grid size-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-md bg-white/20 backdrop-blur transition hover:bg-white/30"
+              onClick={togglePlayback}
+              type="button"
+            >
+              {playing ? <Check aria-hidden className="size-7 text-white" /> : <Play aria-hidden className="size-7 fill-white text-white" />}
+            </button>
+          ) : null}
           <div className="absolute left-[42%] top-[47%] z-10 size-5 rounded-md border-2 border-amber-300 bg-amber-300/20" />
           <div className="absolute left-[58%] top-[36%] z-10 h-12 w-16 rounded-md border-2 border-blue-300 bg-blue-300/15" />
         </div>
