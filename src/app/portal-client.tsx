@@ -123,6 +123,7 @@ type UploadDraft = {
   type: PortalContent["type"];
   folder: string;
   due: string;
+  talent: string;
   file?: File;
   tags: string;
   fileName: string;
@@ -212,12 +213,12 @@ const contentSeed: PortalContent[] = contentItems.map((item, index) => {
     shareMode: "Private",
     tags:
       index === 0
-        ? ["paid social", "launch", "creator"]
+        ? ["paid social", "launch", "creator", "talent:Amelia Rose"]
         : index === 1
-          ? ["organic", "creator"]
+          ? ["organic", "creator", "talent:Theo Park"]
           : index === 2
-            ? ["carousel", "static"]
-            : ["founder", "shorts"],
+            ? ["carousel", "static", "talent:Amelia Rose"]
+            : ["founder", "shorts", "talent:Elliot Ross"],
   };
 });
 
@@ -241,6 +242,7 @@ const defaultUploadDraft: UploadDraft = {
   fileSize: "",
   folder: "Paid social / Reels",
   platform: "Instagram",
+  talent: "",
   tags: "paid social, launch",
   title: "",
   type: "Video",
@@ -758,10 +760,7 @@ export default function PortalClient({
     }
 
     const folderName = draft.folder.trim() || "Unsorted";
-    const tags = draft.tags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
+    const tags = buildContentTags(draft.tags, draft.talent);
     const saved = await callBackend<{ item: PortalContent }>("/api/content", {
       body: {
         campaign: currentCampaign,
@@ -1248,6 +1247,12 @@ export default function PortalClient({
     router.push(`/campaigns/${encodeURIComponent(campaign.id)}`);
   };
 
+  const navigateToView = (view: View) => {
+    setProjectId(null);
+    setActiveView(view);
+    router.push(viewRoutes[view]);
+  };
+
   const openContent = (item: PortalContent) => {
     const campaign = accessibleCampaigns.find(
       (candidate) => candidate.name === item.campaign && candidate.company === item.company,
@@ -1278,11 +1283,7 @@ export default function PortalClient({
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-3 py-3 sm:px-5 lg:flex-row lg:p-5">
         <Sidebar
           activeView={activeView}
-          onChangeView={(view) => {
-            setProjectId(null);
-            setActiveView(view);
-            router.push(viewRoutes[view]);
-          }}
+          onChangeView={navigateToView}
           demoMode={!isSupabaseBrowserConfigured()}
           onLogout={handleLogout}
           onReset={resetDemo}
@@ -1384,6 +1385,10 @@ export default function PortalClient({
                     selectedCompany={selectedCompany}
                   />
                   <DashboardGrid metrics={metrics} />
+                  <DashboardStatusOverview
+                    contentItems={accessibleContent}
+                    onOpenView={navigateToView}
+                  />
                   <DashboardHome
                     activeView="Dashboard"
                     campaigns={visibleCampaigns}
@@ -2271,6 +2276,163 @@ function MetricCard({
   );
 }
 
+function DashboardStatusOverview({
+  contentItems,
+  onOpenView,
+}: {
+  contentItems: PortalContent[];
+  onOpenView: (view: View) => void;
+}) {
+  const groups: {
+    color: string;
+    description: string;
+    label: string;
+    statuses: Status[];
+    view: View;
+  }[] = [
+    {
+      color: "#2563eb",
+      description: "Submitted or being reviewed",
+      label: "In review",
+      statuses: ["Submitted", "In Review"],
+      view: "Inbox",
+    },
+    {
+      color: "#f59e0b",
+      description: "Needs a creative update",
+      label: "Needs changes",
+      statuses: ["Changes Requested"],
+      view: "Inbox",
+    },
+    {
+      color: "#059669",
+      description: "Ready to download",
+      label: "Approved",
+      statuses: ["Approved"],
+      view: "Archive",
+    },
+    {
+      color: "#ea580c",
+      description: "Held for archive",
+      label: "Archive queued",
+      statuses: ["Archive Scheduled"],
+      view: "Archive",
+    },
+  ];
+  const total = contentItems.length;
+  const groupCounts = groups.map((group) =>
+    contentItems.filter((item) => group.statuses.includes(item.status)).length,
+  );
+  const completeCount = contentItems.filter((item) =>
+    ["Approved", "Archive Scheduled"].includes(item.status),
+  ).length;
+  const completionRate = total ? Math.round((completeCount / total) * 100) : 0;
+  let stop = 0;
+  const ringStops = groups
+    .map((group, index) => {
+      const nextStop = total ? stop + (groupCounts[index] / total) * 100 : stop;
+      const value = `${group.color} ${stop}% ${nextStop}%`;
+      stop = nextStop;
+      return value;
+    })
+    .join(", ");
+
+  const talentCounts = Array.from(
+    contentItems.reduce((counts, item) => {
+      const talent = talentFromTags(item.tags);
+
+      if (talent) {
+        counts.set(talent, (counts.get(talent) ?? 0) + 1);
+      }
+
+      return counts;
+    }, new Map<string, number>()),
+  )
+    .sort(([, countA], [, countB]) => countB - countA)
+    .slice(0, 4);
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(300px,0.92fr)]">
+      <Panel
+        title="Workflow pulse"
+        action={
+          <span className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-600">
+            {completionRate}% complete
+          </span>
+        }
+      >
+        <div className="grid gap-6 md:grid-cols-[190px_minmax(0,1fr)] md:items-center">
+          <div className="mx-auto grid size-44 place-items-center rounded-full p-3" style={{ background: total ? `conic-gradient(${ringStops})` : "#e4e4e7" }}>
+            <div className="grid size-full place-items-center rounded-full bg-white text-center">
+              <div>
+                <p className="text-3xl font-semibold tracking-tight text-zinc-950">{completeCount}</p>
+                <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">of {total} complete</p>
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-2">
+            {groups.map((group, index) => (
+              <button
+                className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-3 text-left transition hover:border-zinc-400 disabled:cursor-default disabled:hover:border-zinc-200"
+                disabled={groupCounts[index] === 0}
+                key={group.label}
+                onClick={() => onOpenView(group.view)}
+                type="button"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: group.color }} />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-zinc-900">{group.label}</span>
+                    <span className="mt-0.5 block truncate text-xs text-zinc-500">{group.description}</span>
+                  </span>
+                </span>
+                <span className="text-lg font-semibold text-zinc-950">{groupCounts[index]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </Panel>
+
+      <Panel
+        title="Talent coverage"
+        action={
+          <span className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-600">
+            {talentCounts.length} tagged
+          </span>
+        }
+      >
+        {talentCounts.length ? (
+          <div className="grid gap-3">
+            {talentCounts.map(([name, count], index) => (
+              <div className="flex items-center justify-between gap-3" key={name}>
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="grid size-10 shrink-0 place-items-center rounded-full text-sm font-semibold text-white" style={{ backgroundColor: ["#0f766e", "#7c3aed", "#c2410c", "#2563eb"][index % 4] }}>
+                    {initials(name)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-zinc-900">{name}</p>
+                    <p className="text-xs text-zinc-500">{count} content item{count === 1 ? "" : "s"}</p>
+                  </div>
+                </div>
+                <div className="h-2 w-20 overflow-hidden rounded-full bg-zinc-100">
+                  <div className="h-full rounded-full bg-zinc-950" style={{ width: `${Math.max(20, (count / Math.max(...talentCounts.map(([, value]) => value))) * 100)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid min-h-32 place-items-center rounded-md border border-dashed border-zinc-200 bg-zinc-50 p-4 text-center">
+            <div>
+              <Users aria-hidden className="mx-auto size-6 text-zinc-500" />
+              <p className="mt-2 text-sm font-semibold text-zinc-700">No talent tags yet</p>
+            </div>
+          </div>
+        )}
+      </Panel>
+    </section>
+  );
+}
+
 function CampaignWorkspace({
   activeItemId,
   activeView,
@@ -2518,6 +2680,8 @@ function ContentCard({
   onMore: () => void;
   onSelect: () => void;
 }) {
+  const talent = talentFromTags(item.tags);
+
   return (
     <article
       className={`grid gap-3 rounded-lg border bg-white p-3 shadow-sm transition lg:grid-cols-[150px_minmax(0,1fr)_auto] lg:items-center ${
@@ -2556,6 +2720,7 @@ function ContentCard({
           ) : null}
         </div>
         <h3 className="mt-2 truncate text-base font-semibold">{item.title}</h3>
+        {talent ? <TalentBadge name={talent} /> : null}
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-zinc-600">
           <span>{item.id}</span>
           <span>{item.folder}</span>
@@ -2589,6 +2754,15 @@ function CommentCounter({ comments, unresolved }: { comments: number; unresolved
     >
       <MessageCircle aria-hidden className="size-4" />
       {comments}
+    </span>
+  );
+}
+
+function TalentBadge({ name }: { name: string }) {
+  return (
+    <span className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-800">
+      <Users aria-hidden className="size-3.5 shrink-0" />
+      <span className="truncate">{name}</span>
     </span>
   );
 }
@@ -2776,6 +2950,8 @@ function ReviewPanel({
   onApprove: () => void;
   onResolveComment: (commentId: string) => void;
 }) {
+  const talent = talentFromTags(item.tags);
+
   return (
     <div className="flex min-w-0 flex-col">
       {item.unresolved > 0 ? (
@@ -2795,6 +2971,8 @@ function ReviewPanel({
           </div>
         </div>
       )}
+
+      {talent ? <TalentBadge name={talent} /> : null}
 
       <div className="mt-3 grid gap-2">
         {comments.length ? (
@@ -3091,6 +3269,12 @@ function UploadModal({
             value={draft.due}
           />
         </div>
+        <TextInput
+          label="Talent / influencer"
+          onChange={(value) => setDraft((item) => ({ ...item, talent: value }))}
+          placeholder="e.g. Amelia Rose"
+          value={draft.talent}
+        />
         <TextInput
           label="Tags"
           onChange={(value) => setDraft((item) => ({ ...item, tags: value }))}
@@ -3482,6 +3666,34 @@ function downloadFromUrl(url: string) {
   document.body.append(link);
   link.click();
   link.remove();
+}
+
+function buildContentTags(rawTags: string, talent: string) {
+  const parsedTags = rawTags
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  const embeddedTalent = parsedTags.find((tag) => tag.toLowerCase().startsWith("talent:"));
+  const talentName = talent.trim() || embeddedTalent?.slice("talent:".length).trim();
+  const tags = parsedTags.filter((tag) => !tag.toLowerCase().startsWith("talent:"));
+
+  return talentName ? [...tags, `talent:${talentName}`] : tags;
+}
+
+function talentFromTags(tags: string[]) {
+  const talentTag = tags.find((tag) => tag.toLowerCase().startsWith("talent:"));
+  const name = talentTag?.slice("talent:".length).trim();
+
+  return name || undefined;
+}
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
 }
 
 function sizeToGb(size: string) {
