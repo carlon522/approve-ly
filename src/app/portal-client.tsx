@@ -3945,6 +3945,10 @@ function sizeToGb(size: string) {
     return value / 1024;
   }
 
+  if (size.toLowerCase().includes("kb")) {
+    return value / (1024 * 1024);
+  }
+
   return value;
 }
 
