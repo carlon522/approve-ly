@@ -2,14 +2,21 @@
   "name": "approve-ly-app",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "postbuild": "node scripts/prepare-sites-dist.mjs",
-    "start": "node scripts/render-static-server.mjs",
+    "sites:dist": "node scripts/prepare-sites-dist.mjs",
+    "start": "node scripts/next-start.mjs",
     "lint": "eslint"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1116.0",
+    "@aws-sdk/s3-request-presigner": "^3.1116.0",
+    "@supabase/ssr": "^0.12.4",
+    "@supabase/supabase-js": "^2.112.3",
     "lucide-react": "^1.33.0",
     "next": "16.3.2",
     "react": "19.2.8",

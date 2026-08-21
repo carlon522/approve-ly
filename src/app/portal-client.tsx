@@ -54,6 +54,11 @@ import {
   type Platform,
   type Status,
 } from "@/lib/portal-data";
+import {
+  createBrowserSupabaseClient,
+  isSupabaseBrowserConfigured,
+} from "@/lib/supabase/browser";
+import type { BootstrapPayload } from "@/lib/server/types";
 
 type Role = "Creative" | "Approver" | "Assistant";
 type View = "Dashboard" | "Campaigns" | "Inbox" | "Archive" | "Team";
@@ -61,6 +66,7 @@ type ToastTone = "success" | "warning" | "neutral";
 type ActivityKind = "bell" | "check" | "archive" | "upload" | "comment" | "share";
 
 type Session = {
+  accessToken?: string;
   name: string;
   email: string;
   role: Role;
@@ -79,16 +85,18 @@ type PortalContent = ContentItem & {
   company: string;
   tags: string[];
   fileName?: string;
+  mimeType?: string;
   shareMode?: "Private" | "Public";
   approvedAt?: string;
   archiveDeleteAt?: string;
+  storageKey?: string;
 };
 
 type PortalComment = {
   id: string;
   contentId: string;
   author: string;
-  role: Role | "Approver";
+  role: Role | string;
   anchor: string;
   body: string;
   status: "Open" | "Resolved";
@@ -113,9 +121,11 @@ type UploadDraft = {
   type: PortalContent["type"];
   folder: string;
   due: string;
+  file?: File;
   tags: string;
   fileName: string;
   fileSize: string;
+  mimeType?: string;
 };
 
 const statusStyles: Record<Status, string> = {
@@ -257,35 +267,179 @@ export default function PortalClient() {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      "approveLyPortalState",
-      JSON.stringify({
-        activityList,
-        activeItemId,
-        activePlatform,
-        campaignList,
-        commentList,
-        contentList,
-        folderList,
-        selectedCampaign,
-        selectedCompany,
-        selectedFolder,
-        session,
-      }),
-    );
-  }, [
-    activityList,
-    activeItemId,
-    activePlatform,
-    campaignList,
-    commentList,
-    contentList,
-    folderList,
-    selectedCampaign,
-    selectedCompany,
-    selectedFolder,
-    session,
-  ]);
+    if (!isSupabaseBrowserConfigured()) {
+      return;
+    }
+
+    let cancelled = false;
+    const supabase = createBrowserSupabaseClient();
+
+    async function restoreSession() {
+      const { data } = await supabase.auth.getSession();
+
+      if (cancelled || !data.session?.access_token || !data.session.user.email) {
+        return;
+      }
+
+      setSession({
+        accessToken: data.session.access_token,
+        email: data.session.user.email,
+        name:
+          typeof data.session.user.user_metadata?.name === "string"
+            ? data.session.user.user_metadata.name
+            : data.session.user.email,
+        role: "Creative",
+      });
+    }
+
+    void restoreSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!nextSession?.access_token || !nextSession.user.email) {
+        setSession(null);
+        return;
+      }
+
+      setSession({
+        accessToken: nextSession.access_token,
+        email: nextSession.user.email,
+        name:
+          typeof nextSession.user.user_metadata?.name === "string"
+            ? nextSession.user.user_metadata.name
+            : nextSession.user.email,
+        role: "Creative",
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (session) {
+      return;
+    }
+
+    const token = new URLSearchParams(window.location.search).get("share");
+
+    if (!token) {
+      return;
+    }
+
+    const shareToken = token;
+    let cancelled = false;
+
+    async function loadPublicShare() {
+      const response = await fetch(`/api/share/${encodeURIComponent(shareToken)}`);
+
+      if (!response.ok) {
+        return;
+      }
+
+      const payload = (await response.json()) as BootstrapPayload & { mode: "share" };
+
+      if (cancelled) {
+        return;
+      }
+
+      setActivityList(payload.activity);
+      setCampaignList(payload.campaigns);
+      setCommentList(payload.comments);
+      setContentList(payload.contentItems);
+      setFolderList(payload.folders);
+      setSession({
+        email: payload.profile.email,
+        name: payload.profile.name,
+        role: "Assistant",
+      });
+
+      const firstCampaign = payload.campaigns[0];
+      const firstContent = payload.contentItems[0];
+
+      if (firstCampaign) {
+        setSelectedCompany(firstCampaign.company);
+        setSelectedCampaign(firstCampaign.name);
+      }
+
+      if (firstContent) {
+        setActiveItemId(firstContent.id);
+        setActivePlatform(firstContent.platform);
+      }
+    }
+
+    void loadPublicShare();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  useEffect(() => {
+    const accessToken = session?.accessToken;
+
+    if (!accessToken) {
+      return;
+    }
+
+    const liveAccessToken = accessToken;
+    let cancelled = false;
+
+    async function loadLiveWorkspace() {
+      try {
+        const payload = await apiRequest<BootstrapPayload & { mode: "live" | "demo" }>(
+          "/api/bootstrap",
+          liveAccessToken,
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        setActivityList(payload.activity);
+        setCampaignList(payload.campaigns);
+        setCommentList(payload.comments);
+        setContentList(payload.contentItems);
+        setFolderList(payload.folders);
+        setSession((current) =>
+          current
+            ? {
+                ...current,
+                email: payload.profile.email,
+                name: payload.profile.name,
+                role: payload.profile.role,
+              }
+            : current,
+        );
+
+        const firstCampaign = payload.campaigns[0];
+        const firstContent = payload.contentItems[0];
+
+        if (firstCampaign) {
+          setSelectedCompany(firstCampaign.company);
+          setSelectedCampaign(firstCampaign.name);
+        }
+
+        if (firstContent) {
+          setActiveItemId(firstContent.id);
+          setActivePlatform(firstContent.platform);
+        }
+      } catch {
+        if (!cancelled) {
+          setSession((current) => current && { ...current, accessToken: undefined });
+        }
+      }
+    }
+
+    void loadLiveWorkspace();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.accessToken]);
 
   const notify = (message: string, tone: ToastTone = "success") => {
     const id = Date.now();
@@ -449,6 +603,23 @@ export default function PortalClient() {
     return false;
   };
 
+  const callBackend = async <T,>(
+    path: string,
+    init?: ApiRequestInit,
+  ) => {
+    if (!session?.accessToken) {
+      return null;
+    }
+
+    try {
+      return await apiRequest<T>(path, session.accessToken, init);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Backend request failed.";
+      notify(message, "warning");
+      return null;
+    }
+  };
+
   const handleLogin = (nextSession: Session) => {
     setSession(nextSession);
     setActiveView("Dashboard");
@@ -456,17 +627,91 @@ export default function PortalClient() {
   };
 
   const handleLogout = () => {
+    if (isSupabaseBrowserConfigured()) {
+      void createBrowserSupabaseClient().auth.signOut();
+    }
+
     setSession(null);
     notify("Signed out", "neutral");
   };
 
-  const handleUpload = (draft: UploadDraft) => {
+  const handleUpload = async (draft: UploadDraft) => {
     if (!requirePermission(capabilities.canCreate, "Assistant and Approver roles cannot upload.")) {
       return;
     }
 
-    const nextId = `APL-${1100 + contentList.length + 1}`;
+    let storageKey: string | undefined;
+
+    if (draft.file && session?.accessToken) {
+      const presign = await callBackend<{
+        headers: Record<string, string>;
+        storageKey: string;
+        uploadUrl: string;
+      }>("/api/uploads/presign", {
+        body: {
+          contentType: draft.mimeType || draft.file.type || "application/octet-stream",
+          fileName: draft.file.name,
+          size: draft.file.size,
+        },
+        method: "POST",
+      });
+
+      if (!presign) {
+        return;
+      }
+
+      const uploadResponse = await fetch(presign.uploadUrl, {
+        body: draft.file,
+        headers: presign.headers,
+        method: "PUT",
+      });
+
+      if (!uploadResponse.ok) {
+        notify("R2 upload failed before content was saved.", "warning");
+        return;
+      }
+
+      storageKey = presign.storageKey;
+    }
+
     const folderName = draft.folder.trim() || "Unsorted";
+    const tags = draft.tags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    const saved = await callBackend<{ item: PortalContent }>("/api/content", {
+      body: {
+        campaign: currentCampaign,
+        company: selectedCompany,
+        due: draft.due.trim() || "No due date",
+        fileName: draft.fileName,
+        folder: folderName,
+        mimeType: draft.mimeType,
+        platform: draft.platform,
+        size: draft.fileSize || "0MB",
+        storageKey,
+        tags,
+        title: draft.title.trim() || "Untitled content",
+        type: draft.type,
+      },
+      method: "POST",
+    });
+
+    if (saved?.item) {
+      setContentList((items) => [saved.item, ...items]);
+      setFolderList((items) => bumpFolderCount(items, saved.item.folder));
+      setActiveItemId(saved.item.id);
+      setActivePlatform(saved.item.platform);
+      addActivity("upload", `${saved.item.title} uploaded`);
+      notify("Upload saved to the live approval queue");
+      return;
+    }
+
+    if (session?.accessToken) {
+      return;
+    }
+
+    const nextId = `APL-${1100 + contentList.length + 1}`;
     const nextItem: PortalContent = {
       accent: draft.platform === "Instagram" ? "#db2777" : draft.platform === "TikTok" ? "#111111" : "#dc2626",
       campaign: currentCampaign,
@@ -482,10 +727,7 @@ export default function PortalClient() {
       shareMode: "Private",
       size: draft.fileSize || "0MB",
       status: "Submitted",
-      tags: draft.tags
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter(Boolean),
+      tags,
       title: draft.title.trim() || "Untitled content",
       type: draft.type,
       unresolved: 0,
@@ -500,8 +742,30 @@ export default function PortalClient() {
     notify("Upload added to the approval queue");
   };
 
-  const handleAddCampaign = (name: string, company: string, due: string) => {
+  const handleAddCampaign = async (name: string, company: string, due: string) => {
     if (!requirePermission(capabilities.canCreate, "Only Creatives can create campaigns.")) {
+      return;
+    }
+
+    const saved = await callBackend<{ campaign: PortalCampaign }>("/api/campaigns", {
+      body: {
+        company: company.trim() || selectedCompany,
+        due: due.trim() || "No due date",
+        name: name.trim() || "Untitled campaign",
+      },
+      method: "POST",
+    });
+
+    if (saved?.campaign) {
+      setCampaignList((items) => [saved.campaign, ...items]);
+      setSelectedCompany(saved.campaign.company);
+      setSelectedCampaign(saved.campaign.name);
+      addActivity("bell", `${saved.campaign.name} created`);
+      notify("Campaign created");
+      return;
+    }
+
+    if (session?.accessToken) {
       return;
     }
 
@@ -522,24 +786,68 @@ export default function PortalClient() {
     notify("Campaign created");
   };
 
-  const handleAddFolder = (name: string) => {
+  const handleAddFolder = async (name: string) => {
     if (!requirePermission(capabilities.canCreate, "Only Creatives can create folders.")) {
       return;
     }
 
     const folderName = name.trim() || "New folder";
+    const saved = await callBackend<{ folder: PortalFolder }>("/api/folders", {
+      body: {
+        campaign: currentCampaign,
+        company: selectedCompany,
+        name: folderName,
+      },
+      method: "POST",
+    });
+
+    if (saved?.folder) {
+      setFolderList((items) => [saved.folder, ...items]);
+      setSelectedFolder(saved.folder.name);
+      addActivity("bell", `${saved.folder.name} folder created`);
+      notify("Folder created");
+      return;
+    }
+
+    if (session?.accessToken) {
+      return;
+    }
+
     setFolderList((items) => bumpFolderCount(items, folderName, 0));
     setSelectedFolder(folderName);
     addActivity("bell", `${folderName} folder created`);
     notify("Folder created");
   };
 
-  const handleAddComment = (body: string, anchor: string) => {
+  const handleAddComment = async (body: string, anchor: string) => {
     if (!activeItem) {
       return;
     }
 
     if (!requirePermission(capabilities.canComment, "Assistant view is read-only.")) {
+      return;
+    }
+
+    const saved = await callBackend<{ comment: PortalComment; item: PortalContent }>(
+      `/api/content/${activeItem.id}/comments`,
+      {
+        body: {
+          anchor: anchor.trim() || "General",
+          body: body.trim(),
+        },
+        method: "POST",
+      },
+    );
+
+    if (saved?.comment && saved.item) {
+      setCommentList((items) => [saved.comment, ...items]);
+      setContentList((items) => replaceContentItem(items, saved.item));
+      addActivity("comment", `Comment added to ${activeItem.id}`);
+      notify("Comment added and approval paused", "warning");
+      return;
+    }
+
+    if (session?.accessToken) {
       return;
     }
 
@@ -570,7 +878,7 @@ export default function PortalClient() {
     notify("Comment added and approval paused", "warning");
   };
 
-  const handleResolveComment = (commentId: string) => {
+  const handleResolveComment = async (commentId: string) => {
     if (!activeItem) {
       return;
     }
@@ -582,6 +890,27 @@ export default function PortalClient() {
     const target = commentList.find((comment) => comment.id === commentId);
 
     if (!target || target.status === "Resolved") {
+      return;
+    }
+
+    const saved = await callBackend<{ comment: PortalComment; item: PortalContent }>(
+      `/api/comments/${commentId}/resolve`,
+      {
+        method: "POST",
+      },
+    );
+
+    if (saved?.comment && saved.item) {
+      setCommentList((items) =>
+        items.map((comment) => (comment.id === saved.comment.id ? saved.comment : comment)),
+      );
+      setContentList((items) => replaceContentItem(items, saved.item));
+      addActivity("comment", `Comment resolved on ${activeItem.id}`);
+      notify("Comment resolved");
+      return;
+    }
+
+    if (session?.accessToken) {
       return;
     }
 
@@ -609,7 +938,7 @@ export default function PortalClient() {
     notify("Comment resolved");
   };
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (!activeItem) {
       return;
     }
@@ -620,6 +949,24 @@ export default function PortalClient() {
 
     if (activeItem.unresolved > 0) {
       notify("Resolve open comments before approval.", "warning");
+      return;
+    }
+
+    const saved = await callBackend<{ item: PortalContent }>(
+      `/api/content/${activeItem.id}/approve`,
+      {
+        method: "POST",
+      },
+    );
+
+    if (saved?.item) {
+      setContentList((items) => replaceContentItem(items, saved.item));
+      addActivity("check", `${saved.item.title} approved`);
+      notify("Approved in one click");
+      return;
+    }
+
+    if (session?.accessToken) {
       return;
     }
 
@@ -638,7 +985,35 @@ export default function PortalClient() {
     notify("Approved in one click");
   };
 
-  const handleDownload = (item: PortalContent, final = false) => {
+  const handleDownload = async (item: PortalContent, final = false) => {
+    const saved = await callBackend<{
+      downloadUrl?: string;
+      item?: PortalContent;
+      metadata?: unknown;
+    }>(`/api/content/${item.id}/download?final=${final ? "true" : "false"}`);
+
+    if (saved?.downloadUrl) {
+      downloadFromUrl(saved.downloadUrl);
+      if (saved.item) {
+        setContentList((items) => replaceContentItem(items, saved.item as PortalContent));
+      }
+      notify(final ? "Final download link opened" : "Download link opened");
+      return;
+    }
+
+    if (saved?.metadata) {
+      downloadJson(`${item.id.toLowerCase()}-${final ? "final" : "asset"}.json`, saved.metadata);
+      if (saved.item) {
+        setContentList((items) => replaceContentItem(items, saved.item as PortalContent));
+      }
+      notify(final ? "Final download started" : "Download started");
+      return;
+    }
+
+    if (session?.accessToken) {
+      return;
+    }
+
     const payload = {
       campaign: item.campaign,
       company: item.company,
@@ -690,13 +1065,28 @@ export default function PortalClient() {
     notify(`${bundle.length} approved files bundled`);
   };
 
-  const handleArchive = (item: PortalContent) => {
+  const handleArchive = async (item: PortalContent) => {
     if (!requirePermission(capabilities.canArchive, "Only Creatives can schedule archive.")) {
       return;
     }
 
     if (item.status !== "Approved" && item.status !== "Archive Scheduled") {
       notify("Only approved content can be archived.", "warning");
+      return;
+    }
+
+    const saved = await callBackend<{ item: PortalContent }>(`/api/content/${item.id}/archive`, {
+      method: "POST",
+    });
+
+    if (saved?.item) {
+      setContentList((items) => replaceContentItem(items, saved.item));
+      addActivity("archive", `${saved.item.title} marked for archive`);
+      notify("Archive scheduled with 7 day hold");
+      return;
+    }
+
+    if (session?.accessToken) {
       return;
     }
 
@@ -716,8 +1106,28 @@ export default function PortalClient() {
     notify("Archive scheduled with 7 day hold");
   };
 
-  const handleShare = (mode: "Private" | "Public") => {
+  const handleShare = async (mode: "Private" | "Public") => {
     if (!activeItem) {
+      return;
+    }
+
+    const saved = await callBackend<{ item: PortalContent; url: string }>(
+      `/api/content/${activeItem.id}/share`,
+      {
+        body: { mode },
+        method: "POST",
+      },
+    );
+
+    if (saved?.url && saved.item) {
+      setContentList((items) => replaceContentItem(items, saved.item));
+      void navigator.clipboard?.writeText(saved.url).catch(() => undefined);
+      addActivity("share", `${mode} link created for ${activeItem.id}`);
+      notify(`${mode} share link copied`);
+      return;
+    }
+
+    if (session?.accessToken) {
       return;
     }
 
@@ -916,9 +1326,37 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
   const [email, setEmail] = useState("creative@approvely.app");
   const [password, setPassword] = useState("approval");
   const [role, setRole] = useState<Role>("Creative");
+  const [error, setError] = useState("");
+  const liveAuth = isSupabaseBrowserConfigured();
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (liveAuth) {
+      const supabase = createBrowserSupabaseClient();
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (signInError || !data.session?.access_token || !data.user.email) {
+        setError(signInError?.message ?? "Sign in failed.");
+        return;
+      }
+
+      setError("");
+      onLogin({
+        accessToken: data.session.access_token,
+        email: data.user.email,
+        name:
+          typeof data.user.user_metadata?.name === "string"
+            ? data.user.user_metadata.name
+            : name.trim() || data.user.email,
+        role,
+      });
+      return;
+    }
+
     onLogin({
       email,
       name: name.trim() || email.split("@")[0] || "User",
@@ -964,8 +1402,17 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
       <section className="mx-auto mt-4 w-full max-w-xl rounded-lg border border-[#dedbd2] bg-white p-4 shadow-sm lg:mt-0 lg:self-center">
         <div className="mb-5">
           <h2 className="text-xl font-semibold">Sign in</h2>
-          <p className="mt-1 text-sm text-zinc-500">Email password and Google entry are wired for the demo flow.</p>
+          <p className="mt-1 text-sm text-zinc-500">
+            {liveAuth
+              ? "Email/password and Google use Supabase Auth."
+              : "Demo mode is active until Supabase env vars are added."}
+          </p>
         </div>
+        {error ? (
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+            {error}
+          </div>
+        ) : null}
         <form className="grid gap-3" onSubmit={submit}>
           <label className="grid gap-1.5 text-sm font-medium">
             Name
@@ -1015,13 +1462,24 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         </form>
         <button
           className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-4 text-sm font-semibold transition hover:border-zinc-300"
-          onClick={() =>
+          onClick={() => {
+            if (liveAuth) {
+              const supabase = createBrowserSupabaseClient();
+              void supabase.auth.signInWithOAuth({
+                options: {
+                  redirectTo: window.location.origin,
+                },
+                provider: "google",
+              });
+              return;
+            }
+
             onLogin({
               email: "google.user@approvely.app",
               name: "Google User",
               role,
-            })
-          }
+            });
+          }}
           type="button"
         >
           <ShieldCheck aria-hidden className="size-4" />
@@ -2085,8 +2543,10 @@ function UploadModal({
               }
               setDraft((item) => ({
                 ...item,
+                file,
                 fileName: file.name,
                 fileSize: formatBytes(file.size),
+                mimeType: file.type || "application/octet-stream",
               }));
             }}
             type="file"
@@ -2376,6 +2836,57 @@ function ToastStack({ toasts }: { toasts: Toast[] }) {
       ))}
     </div>
   );
+}
+
+async function apiRequest<T>(
+  path: string,
+  accessToken: string,
+  init?: ApiRequestInit,
+) {
+  const headers = new Headers(init?.headers);
+  headers.set("Authorization", `Bearer ${accessToken}`);
+
+  let body = init?.body;
+
+  if (body && !(body instanceof FormData) && !(body instanceof Blob) && typeof body !== "string") {
+    headers.set("Content-Type", "application/json");
+    body = JSON.stringify(body);
+  }
+
+  const response = await fetch(path, {
+    ...init,
+    body,
+    headers,
+  });
+  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? `Request failed with ${response.status}`);
+  }
+
+  return payload as T;
+}
+
+type ApiRequestInit = Omit<RequestInit, "body"> & {
+  body?: BodyInit | Record<string, unknown> | null;
+};
+
+function replaceContentItem(items: PortalContent[], item: PortalContent) {
+  if (!items.some((existing) => existing.id === item.id)) {
+    return [item, ...items];
+  }
+
+  return items.map((existing) => (existing.id === item.id ? item : existing));
+}
+
+function downloadFromUrl(url: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.rel = "noopener";
+  link.target = "_blank";
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 function sizeToGb(size: string) {
