@@ -1,9 +1,10 @@
 "use client";
 
 import {
+  ArrowLeft,
+  ArrowUpRight,
   Archive,
   Building2,
-  CalendarDays,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -45,6 +46,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
 import {
   campaigns,
   comments,
@@ -244,7 +246,8 @@ const defaultUploadDraft: UploadDraft = {
   type: "Video",
 };
 
-export default function PortalClient() {
+export default function PortalClient({ initialCampaignId }: { initialCampaignId?: string } = {}) {
+  const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [campaignList, setCampaignList] = useState<PortalCampaign[]>(campaignSeed);
   const [folderList, setFolderList] = useState<PortalFolder[]>(folderSeed);
@@ -256,7 +259,8 @@ export default function PortalClient() {
   const [selectedFolder, setSelectedFolder] = useState("All folders");
   const [activeItemId, setActiveItemId] = useState(contentSeed[0].id);
   const [activePlatform, setActivePlatform] = useState<Platform>("Instagram");
-  const [activeView, setActiveView] = useState<View>("Dashboard");
+  const [activeView, setActiveView] = useState<View>(initialCampaignId ? "Campaigns" : "Dashboard");
+  const [projectId, setProjectId] = useState<string | null>(initialCampaignId ?? null);
   const [query, setQuery] = useState("");
   const [filterReviewOnly, setFilterReviewOnly] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -268,6 +272,16 @@ export default function PortalClient() {
 
   useEffect(() => {
     if (!isSupabaseBrowserConfigured()) {
+      const storedSession = window.sessionStorage.getItem("approveLyDemoSession");
+
+      if (storedSession) {
+        try {
+          setSession(JSON.parse(storedSession) as Session);
+        } catch {
+          window.sessionStorage.removeItem("approveLyDemoSession");
+        }
+      }
+
       return;
     }
 
@@ -415,7 +429,9 @@ export default function PortalClient() {
             : current,
         );
 
-        const firstCampaign = payload.campaigns[0];
+        const firstCampaign =
+          payload.campaigns.find((campaign) => campaign.id === initialCampaignId) ??
+          payload.campaigns[0];
         const firstContent = payload.contentItems[0];
 
         if (firstCampaign) {
@@ -439,7 +455,7 @@ export default function PortalClient() {
     return () => {
       cancelled = true;
     };
-  }, [session?.accessToken]);
+  }, [initialCampaignId, session?.accessToken]);
 
   const notify = (message: string, tone: ToastTone = "success") => {
     const id = Date.now();
@@ -479,6 +495,11 @@ export default function PortalClient() {
   )
     ? selectedCampaign
     : visibleCampaigns[0]?.name ?? selectedCampaign;
+
+  const currentProject = campaignList.find(
+    (campaign) => campaign.id === (projectId ?? ""),
+  );
+  const isProjectPage = Boolean(projectId);
 
   const firstCampaignForCompany = (company: string) => {
     const matches = campaignList.filter((campaign) => campaign.company === company);
@@ -621,8 +642,20 @@ export default function PortalClient() {
   };
 
   const handleLogin = (nextSession: Session) => {
+    if (!isSupabaseBrowserConfigured()) {
+      window.sessionStorage.setItem("approveLyDemoSession", JSON.stringify(nextSession));
+    }
+
     setSession(nextSession);
-    setActiveView("Dashboard");
+    setActiveView(initialCampaignId ? "Campaigns" : "Dashboard");
+    const project = initialCampaignId
+      ? campaignList.find((campaign) => campaign.id === initialCampaignId)
+      : undefined;
+
+    if (project) {
+      setSelectedCompany(project.company);
+      setSelectedCampaign(project.name);
+    }
     notify(`Signed in as ${nextSession.name}`);
   };
 
@@ -631,6 +664,7 @@ export default function PortalClient() {
       void createBrowserSupabaseClient().auth.signOut();
     }
 
+    window.sessionStorage.removeItem("approveLyDemoSession");
     setSession(null);
     notify("Signed out", "neutral");
   };
@@ -1160,6 +1194,21 @@ export default function PortalClient() {
     notify("Demo data reset", "neutral");
   };
 
+  const openProject = (campaign: PortalCampaign) => {
+    setProjectId(campaign.id);
+    setActiveView("Campaigns");
+    setSelectedCompany(campaign.company);
+    setSelectedCampaign(campaign.name);
+    setSelectedFolder("All folders");
+    router.push(`/campaigns/${encodeURIComponent(campaign.id)}`);
+  };
+
+  const closeProject = () => {
+    setProjectId(null);
+    setActiveView("Dashboard");
+    router.push("/");
+  };
+
   if (!session) {
     return <LoginScreen onLogin={handleLogin} />;
   }
@@ -1169,99 +1218,124 @@ export default function PortalClient() {
       <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-3 py-3 sm:px-5 lg:flex-row lg:p-5">
         <Sidebar
           activeView={activeView}
-          onChangeView={setActiveView}
+          onChangeView={(view) => {
+            setActiveView(view);
+            if (isProjectPage) {
+              setProjectId(null);
+              router.push("/");
+            }
+          }}
           onLogout={handleLogout}
           onReset={resetDemo}
           role={session.role}
           storageValue={metrics[3].value}
         />
         <section className="flex min-w-0 flex-1 flex-col gap-4">
-          <Topbar
-            campaigns={visibleCampaigns}
-            companies={companies}
-            company={selectedCompany}
-            onCampaignChange={setSelectedCampaign}
-            onCompanyChange={(company) => {
-              setSelectedCompany(company);
-              setSelectedCampaign(firstCampaignForCompany(company));
-              setSelectedFolder("All folders");
-            }}
-            onNewUpload={() => {
-              if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
-                setUploadOpen(true);
-              }
-            }}
-            campaign={currentCampaign}
-            name={session.name}
-            role={session.role}
-          />
-          <DashboardGrid metrics={metrics} />
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,0.9fr)]">
-            <CampaignWorkspace
-              activeItemId={activeItem?.id}
-              activeView={activeView}
-              campaigns={visibleCampaigns}
-              contentItems={queueContent}
-              filterReviewOnly={filterReviewOnly}
-              folders={folderList}
-              onAddCampaign={() => {
-                if (requirePermission(capabilities.canCreate, "Only Creatives can create campaigns.")) {
-                  setCampaignOpen(true);
-                }
-              }}
-              onAddFolder={() => {
-                if (requirePermission(capabilities.canCreate, "Only Creatives can create folders.")) {
-                  setFolderOpen(true);
-                }
-              }}
-              onDownload={handleDownload}
-              onFolderSelect={setSelectedFolder}
-              onMore={(item) => {
-                setActiveItemId(item.id);
-                setShareOpen(true);
-              }}
-              onSearch={setQuery}
-              onSelectCampaign={(campaign) => {
-                setSelectedCompany(campaign.company);
-                setSelectedCampaign(campaign.name);
-                setSelectedFolder("All folders");
-              }}
-              onSelectItem={(item) => {
-                setActiveItemId(item.id);
-                setActivePlatform(item.platform);
-              }}
-              onToggleFilter={() => setFilterReviewOnly((value) => !value)}
-              onUpload={() => {
-                if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
-                  setUploadOpen(true);
-                }
-              }}
-              query={query}
-              selectedCampaign={currentCampaign}
-              selectedFolder={selectedFolder}
-            />
-            <ApprovalWorkspace
-              activeComments={activeComments}
-              activeItem={activeItem}
-              activePlatform={activePlatform}
-              activityList={activityList}
-              canArchive={capabilities.canArchive}
-              canApprove={capabilities.canApprove}
-              canComment={capabilities.canComment}
-              onAddComment={() => {
-                if (requirePermission(capabilities.canComment, "Assistant view is read-only.")) {
-                  setCommentOpen(true);
-                }
-              }}
-              onApprove={handleApprove}
-              onArchive={handleArchive}
-              onBundleDownload={handleBundleDownload}
-              onDownload={handleDownload}
-              onPlatformChange={setActivePlatform}
-              onResolveComment={handleResolveComment}
-              onShare={() => setShareOpen(true)}
-            />
-          </section>
+          {isProjectPage ? (
+            <>
+              <ProjectHeader
+                campaign={currentProject ?? visibleCampaigns[0]}
+                name={session.name}
+                onBack={closeProject}
+                onNewUpload={() => {
+                  if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
+                    setUploadOpen(true);
+                  }
+                }}
+                role={session.role}
+              />
+              <section className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(380px,0.95fr)]">
+                <CampaignWorkspace
+                  activeItemId={activeItem?.id}
+                  activeView={activeView}
+                  campaigns={[]}
+                  contentItems={queueContent}
+                  filterReviewOnly={filterReviewOnly}
+                  focused
+                  folders={folderList}
+                  onAddCampaign={() => setCampaignOpen(true)}
+                  onAddFolder={() => {
+                    if (requirePermission(capabilities.canCreate, "Only Creatives can create folders.")) {
+                      setFolderOpen(true);
+                    }
+                  }}
+                  onDownload={handleDownload}
+                  onFolderSelect={setSelectedFolder}
+                  onMore={(item) => {
+                    setActiveItemId(item.id);
+                    setShareOpen(true);
+                  }}
+                  onSearch={setQuery}
+                  onSelectCampaign={openProject}
+                  onSelectItem={(item) => {
+                    setActiveItemId(item.id);
+                    setActivePlatform(item.platform);
+                  }}
+                  onToggleFilter={() => setFilterReviewOnly((value) => !value)}
+                  onUpload={() => {
+                    if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
+                      setUploadOpen(true);
+                    }
+                  }}
+                  query={query}
+                  selectedCampaign={currentCampaign}
+                  selectedFolder={selectedFolder}
+                />
+                <ApprovalWorkspace
+                  activeComments={activeComments}
+                  activeItem={activeItem}
+                  activePlatform={activePlatform}
+                  activityList={activityList}
+                  canArchive={capabilities.canArchive}
+                  canApprove={capabilities.canApprove}
+                  canComment={capabilities.canComment}
+                  onAddComment={() => {
+                    if (requirePermission(capabilities.canComment, "Assistant view is read-only.")) {
+                      setCommentOpen(true);
+                    }
+                  }}
+                  onApprove={handleApprove}
+                  onArchive={handleArchive}
+                  onBundleDownload={handleBundleDownload}
+                  onDownload={handleDownload}
+                  onPlatformChange={setActivePlatform}
+                  onResolveComment={handleResolveComment}
+                  onShare={() => setShareOpen(true)}
+                />
+              </section>
+            </>
+          ) : (
+            <>
+              <DashboardHeader
+                companies={companies}
+                name={session.name}
+                onCompanyChange={(company) => {
+                  setSelectedCompany(company);
+                  setSelectedCampaign(firstCampaignForCompany(company));
+                  setSelectedFolder("All folders");
+                }}
+                onNewUpload={() => {
+                  if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
+                    setUploadOpen(true);
+                  }
+                }}
+                role={session.role}
+                selectedCompany={selectedCompany}
+              />
+              <DashboardGrid metrics={metrics} />
+              <DashboardHome
+                activeView={activeView}
+                campaigns={visibleCampaigns}
+                onAddCampaign={() => {
+                  if (requirePermission(capabilities.canCreate, "Only Creatives can create campaigns.")) {
+                    setCampaignOpen(true);
+                  }
+                }}
+                onOpenCampaign={openProject}
+                recentActivity={activityList}
+              />
+            </>
+          )}
         </section>
       </div>
 
@@ -1494,6 +1568,191 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
   );
 }
 
+function DashboardHeader({
+  companies,
+  name,
+  onCompanyChange,
+  onNewUpload,
+  role,
+  selectedCompany,
+}: {
+  companies: string[];
+  name: string;
+  onCompanyChange: (company: string) => void;
+  onNewUpload: () => void;
+  role: Role;
+  selectedCompany: string;
+}) {
+  return (
+    <header className="flex flex-col gap-5 border-b border-zinc-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p className="text-sm font-medium text-emerald-700">Workspace overview</p>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-zinc-950 sm:text-4xl">
+          Welcome, {name}
+        </h1>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-600">
+          Keep every campaign moving from first upload to final download.
+        </p>
+      </div>
+      <div className="flex flex-col gap-2 sm:items-end">
+        <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">{role} workspace</span>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <SelectField
+            icon={Building2}
+            label="Company"
+            onChange={onCompanyChange}
+            options={companies}
+            value={selectedCompany}
+          />
+          <button
+            className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            onClick={onNewUpload}
+            type="button"
+          >
+            <Plus aria-hidden className="size-4" />
+            New upload
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function ProjectHeader({
+  campaign,
+  name,
+  onBack,
+  onNewUpload,
+  role,
+}: {
+  campaign?: PortalCampaign;
+  name: string;
+  onBack: () => void;
+  onNewUpload: () => void;
+  role: Role;
+}) {
+  return (
+    <header className="border-b border-zinc-200 pb-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <button
+            className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-500 transition hover:text-zinc-950"
+            onClick={onBack}
+            type="button"
+          >
+            <ArrowLeft aria-hidden className="size-4" />
+            All projects
+          </button>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-zinc-500">{campaign?.company ?? "Project"}</span>
+            <span className="text-zinc-300">/</span>
+            <span className="text-sm font-medium text-zinc-500">{role} workspace</span>
+          </div>
+          <h1 className="mt-1 truncate text-3xl font-semibold tracking-tight text-zinc-950 sm:text-4xl">
+            {campaign?.name ?? "Project workspace"}
+          </h1>
+          <p className="mt-2 text-sm text-zinc-600">
+            {campaign?.due ? `Due ${campaign.due}` : "Review and approve campaign content"} · Signed in as {name}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {campaign ? <CampaignStatusBadge status={campaign.status} /> : null}
+          <button
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            onClick={onNewUpload}
+            type="button"
+          >
+            <Plus aria-hidden className="size-4" />
+            Upload
+          </button>
+        </div>
+      </div>
+      {campaign ? (
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-3 text-xs font-semibold text-zinc-500">
+              <span>Project progress</span>
+              <span>{campaign.progress}%</span>
+            </div>
+            <ProgressBar value={campaign.progress} className="mt-2" />
+          </div>
+          <span className="text-sm text-zinc-500">{campaign.approvers}</span>
+        </div>
+      ) : null}
+    </header>
+  );
+}
+
+function DashboardHome({
+  activeView,
+  campaigns,
+  onAddCampaign,
+  onOpenCampaign,
+  recentActivity,
+}: {
+  activeView: View;
+  campaigns: PortalCampaign[];
+  onAddCampaign: () => void;
+  onOpenCampaign: (campaign: PortalCampaign) => void;
+  recentActivity: PortalActivity[];
+}) {
+  const heading = activeView === "Dashboard" ? "Your projects" : activeView;
+  const supportingCopy =
+    activeView === "Dashboard"
+      ? "Open a project to review its content, comments, and approvals."
+      : "Choose a project to continue working in its focused workspace.";
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <Panel
+        title={heading}
+        action={
+          <button
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-300"
+            onClick={onAddCampaign}
+            type="button"
+          >
+            <Plus aria-hidden className="size-4" />
+            New project
+          </button>
+        }
+      >
+        <p className="mb-4 text-sm text-zinc-600">{supportingCopy}</p>
+        <div className="grid gap-3 md:grid-cols-2">
+          {campaigns.map((campaign) => (
+            <button
+              key={campaign.id}
+              className="group rounded-lg border border-zinc-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-zinc-400 hover:shadow-sm"
+              onClick={() => onOpenCampaign(campaign)}
+              type="button"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-base font-semibold text-zinc-950">{campaign.name}</p>
+                  <p className="mt-1 truncate text-sm text-zinc-500">{campaign.company}</p>
+                </div>
+                <ArrowUpRight aria-hidden className="size-4 text-zinc-400 transition group-hover:text-zinc-950" />
+              </div>
+              <div className="mt-5 flex items-center justify-between gap-3 text-sm text-zinc-600">
+                <span>{campaign.due}</span>
+                <CampaignStatusBadge status={campaign.status} />
+              </div>
+              <ProgressBar value={campaign.progress} className="mt-3" />
+              <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
+                <span>{campaign.progress}% complete</span>
+                <span>{campaign.approvers}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      </Panel>
+      <Panel title="Recent activity">
+        <ActivityFeed items={recentActivity.slice(0, 5)} />
+      </Panel>
+    </section>
+  );
+}
+
 function Sidebar({
   activeView,
   onChangeView,
@@ -1585,67 +1844,6 @@ function Sidebar({
   );
 }
 
-function Topbar({
-  campaign,
-  campaigns,
-  companies,
-  company,
-  name,
-  onCampaignChange,
-  onCompanyChange,
-  onNewUpload,
-  role,
-}: {
-  campaign: string;
-  campaigns: PortalCampaign[];
-  companies: string[];
-  company: string;
-  name: string;
-  onCampaignChange: (campaign: string) => void;
-  onCompanyChange: (company: string) => void;
-  onNewUpload: () => void;
-  role: Role;
-}) {
-  return (
-    <header className="rounded-lg border border-[#dedbd2] bg-white p-3 shadow-sm">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="text-sm font-medium text-zinc-500">
-            Welcome, {name} <span className="text-zinc-400">/ {role}</span>
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-950 sm:text-3xl">
-            Content approval command center
-          </h1>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <SelectField
-            icon={Building2}
-            label="Company"
-            onChange={onCompanyChange}
-            options={companies}
-            value={company}
-          />
-          <SelectField
-            icon={CalendarDays}
-            label="Campaign"
-            onChange={onCampaignChange}
-            options={campaigns.map((item) => item.name)}
-            value={campaign}
-          />
-          <button
-            className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
-            onClick={onNewUpload}
-            type="button"
-          >
-            <Plus aria-hidden className="size-4" />
-            New upload
-          </button>
-        </div>
-      </div>
-    </header>
-  );
-}
-
 function SelectField({
   icon: Icon,
   label,
@@ -1732,6 +1930,7 @@ function CampaignWorkspace({
   campaigns,
   contentItems,
   filterReviewOnly,
+  focused = false,
   folders,
   onAddCampaign,
   onAddFolder,
@@ -1752,6 +1951,7 @@ function CampaignWorkspace({
   campaigns: PortalCampaign[];
   contentItems: PortalContent[];
   filterReviewOnly: boolean;
+  focused?: boolean;
   folders: PortalFolder[];
   onAddCampaign: () => void;
   onAddFolder: () => void;
@@ -1769,45 +1969,47 @@ function CampaignWorkspace({
 }) {
   return (
     <section className="flex min-w-0 flex-col gap-4">
-      <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_330px]">
-        <Panel title={activeView === "Team" ? "Assigned campaigns" : "Campaigns"} action={<IconButton label="Add campaign" icon={Plus} onClick={onAddCampaign} />}>
-          <div className="grid gap-3">
-            {campaigns.map((campaign) => (
-              <button
-                key={campaign.id}
-                className={`rounded-lg border bg-white p-3 text-left transition hover:border-zinc-300 ${
-                  selectedCampaign === campaign.name ? "border-zinc-950" : "border-zinc-200"
-                }`}
-                onClick={() => onSelectCampaign(campaign)}
-                type="button"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-base font-semibold">{campaign.name}</h2>
-                    <p className="mt-1 text-sm text-zinc-500">{campaign.company}</p>
+      {!focused ? (
+        <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_330px]">
+          <Panel title={activeView === "Team" ? "Assigned campaigns" : "Campaigns"} action={<IconButton label="Add campaign" icon={Plus} onClick={onAddCampaign} />}>
+            <div className="grid gap-3">
+              {campaigns.map((campaign) => (
+                <button
+                  key={campaign.id}
+                  className={`rounded-lg border bg-white p-3 text-left transition hover:border-zinc-300 ${
+                    selectedCampaign === campaign.name ? "border-zinc-950" : "border-zinc-200"
+                  }`}
+                  onClick={() => onSelectCampaign(campaign)}
+                  type="button"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-base font-semibold">{campaign.name}</h2>
+                      <p className="mt-1 text-sm text-zinc-500">{campaign.company}</p>
+                    </div>
+                    <span className="rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
+                      {campaign.status}
+                    </span>
                   </div>
-                  <span className="rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
-                    {campaign.status}
-                  </span>
-                </div>
-                <div className="mt-4 flex items-center justify-between gap-3 text-sm text-zinc-600">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Clock3 aria-hidden className="size-4" />
-                    {campaign.due}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Users aria-hidden className="size-4" />
-                    {campaign.approvers}
-                  </span>
-                </div>
-                <ProgressBar value={campaign.progress} className="mt-3" />
-              </button>
-            ))}
-          </div>
-        </Panel>
+                  <div className="mt-4 flex items-center justify-between gap-3 text-sm text-zinc-600">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock3 aria-hidden className="size-4" />
+                      {campaign.due}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Users aria-hidden className="size-4" />
+                      {campaign.approvers}
+                    </span>
+                  </div>
+                  <ProgressBar value={campaign.progress} className="mt-3" />
+                </button>
+              ))}
+            </div>
+          </Panel>
 
-        <UploadPanel onUpload={onUpload} />
-      </div>
+          <UploadPanel onUpload={onUpload} />
+        </div>
+      ) : null}
 
       <Panel title="Campaign folders" action={<IconButton label="Add folder" icon={FolderPlus} onClick={onAddFolder} />}>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -2464,6 +2666,17 @@ function StatusBadge({ status }: { status: Status }) {
       {status}
     </span>
   );
+}
+
+function CampaignStatusBadge({ status }: { status: string }) {
+  const styles =
+    status === "Active"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : status === "Review"
+        ? "border-blue-200 bg-blue-50 text-blue-700"
+        : "border-zinc-200 bg-zinc-50 text-zinc-700";
+
+  return <span className={`rounded-md border px-2 py-1 text-xs font-semibold ${styles}`}>{status}</span>;
 }
 
 function ProgressBar({ value, className = "" }: { value: number; className?: string }) {
