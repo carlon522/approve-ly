@@ -42,5 +42,5 @@ Uploads can be up to 5GB, so large files must go directly to object or video sto
 ## Scripts
 
 - `npm run dev`: local development.
-- `npm run build`: production build.
+- `npm run build`: production build and static `dist/` preparation.
 - `npm run lint`: lint checks.
