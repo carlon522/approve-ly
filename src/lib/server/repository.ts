@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { getAppBaseUrl, isR2Configured } from "./env";
 import { ApiError } from "./http";
 import { assertCanApprove, assertCanArchive, assertCanComment, assertCanCreate } from "./permissions";
-import { createDownloadUrl } from "./r2";
+import { createDownloadUrl, deleteStoredObject } from "./r2";
 import { getSupabaseAdmin } from "./supabase";
 import type {
   BootstrapPayload,
@@ -516,6 +516,65 @@ async function scheduleArchive(contentId: string) {
 
   await logActivity("archive", `${data.title} marked for archive`);
   return mapContentWithLookups(data);
+}
+
+export async function cleanupArchivedContent() {
+  if (!isR2Configured()) {
+    throw new ApiError("Cloudflare R2 is not configured.", 503);
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data: dueItems, error: findError } = await supabase
+    .from("content_items")
+    .select("id,title,storage_key,archive_delete_at")
+    .eq("status", "Archive Scheduled")
+    .not("archive_delete_at", "is", null)
+    .lte("archive_delete_at", new Date().toISOString())
+    .not("storage_key", "is", null)
+    .limit(100);
+
+  if (findError) {
+    throw new ApiError(findError.message, 500);
+  }
+
+  const deleted: string[] = [];
+  const failures: Array<{ id: string; error: string }> = [];
+
+  for (const item of dueItems ?? []) {
+    if (!item.storage_key) {
+      continue;
+    }
+
+    try {
+      await deleteStoredObject(item.storage_key);
+      const { error: updateError } = await supabase
+        .from("content_items")
+        .update({
+          mime_type: null,
+          size_label: "Archived",
+          storage_key: null,
+        })
+        .eq("id", item.id);
+
+      if (updateError) {
+        throw new Error(updateError.message);
+      }
+
+      await logActivity("archive", `${item.title} archived; media deleted`);
+      deleted.push(item.id);
+    } catch (error) {
+      failures.push({
+        error: error instanceof Error ? error.message : "Unknown cleanup error",
+        id: item.id,
+      });
+    }
+  }
+
+  return {
+    deleted,
+    failed: failures,
+    scanned: dueItems?.length ?? 0,
+  };
 }
 
 async function findOrCreateCompany(name: string): Promise<CompanyRow> {

@@ -21,6 +21,7 @@ Open [http://localhost:3000](http://localhost:3000) with your browser.
 3. Add the Supabase URL, anon/publishable key, and service role key to Render.
 4. Create a Cloudflare R2 bucket and S3 API token, then add the R2 env vars to Render.
 5. Configure R2 CORS to allow `PUT` from your Render domain with the `Content-Type` header.
+6. Add the same random value as `CRON_SECRET` in Render and as the GitHub Actions secret `APPROVE_LY_CRON_SECRET`. The scheduled workflow removes R2 objects seven days after a final download archive is requested.
 
 Required production env vars:
 
@@ -32,6 +33,7 @@ Required production env vars:
 - `CLOUDFLARE_R2_SECRET_ACCESS_KEY`
 - `CLOUDFLARE_R2_BUCKET`
 - `APP_BASE_URL`
+- `CRON_SECRET`
 
 ## Product Docs
 
@@ -73,3 +75,8 @@ Use a Render Web Service, not a Static Site:
 - Build Command: `npm run build`
 - Start Command: `npm run start`
 - Node: `22` or newer
+
+The archive cleanup workflow also needs these GitHub Actions secrets:
+
+- `APPROVE_LY_BASE_URL=https://approve-ly.onrender.com`
+- `APPROVE_LY_CRON_SECRET` (the same value as Render's `CRON_SECRET`)

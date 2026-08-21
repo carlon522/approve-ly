@@ -1,0 +1,20 @@
+name: Cleanup archived media
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove expired R2 objects
+        env:
+          APP_BASE_URL: ${{ secrets.APPROVE_LY_BASE_URL }}
+          CRON_SECRET: ${{ secrets.APPROVE_LY_CRON_SECRET }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "x-cron-secret: ${CRON_SECRET}" \
+            "${APP_BASE_URL}/api/maintenance/cleanup-archives"

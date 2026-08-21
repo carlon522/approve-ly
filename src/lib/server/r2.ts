@@ -1,4 +1,9 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
 import { MAX_UPLOAD_BYTES, isR2Configured, requireEnv } from "./env";
@@ -73,6 +78,16 @@ export async function createDownloadUrl(storageKey: string, fileName?: string) {
   });
 
   return getSignedUrl(getR2Client(), command, { expiresIn: 3600 });
+}
+
+export async function deleteStoredObject(storageKey: string) {
+  const bucket = requireEnv("CLOUDFLARE_R2_BUCKET");
+  await getR2Client().send(
+    new DeleteObjectCommand({
+      Bucket: bucket,
+      Key: storageKey,
+    }),
+  );
 }
 
 function safeFileName(fileName: string) {
