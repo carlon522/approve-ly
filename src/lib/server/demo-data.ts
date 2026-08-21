@@ -24,12 +24,12 @@ export function getDemoBootstrap(profile?: Profile) {
       shareMode: "Private",
       tags:
         index === 0
-          ? ["paid social", "launch", "creator"]
+          ? ["paid social", "launch", "creator", "talent:Amelia Rose"]
           : index === 1
-            ? ["organic", "creator"]
+            ? ["organic", "creator", "talent:Theo Park"]
             : index === 2
-              ? ["carousel", "static"]
-              : ["founder", "shorts"],
+              ? ["carousel", "static", "talent:Amelia Rose"]
+              : ["founder", "shorts", "talent:Elliot Ross"],
     };
   });
 

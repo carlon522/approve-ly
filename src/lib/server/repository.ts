@@ -886,6 +886,7 @@ function mapContent(
     folder: row.folder ?? "Unsorted",
     id: row.id,
     mimeType: row.mime_type ?? undefined,
+    mediaUrl: row.storage_key ? undefined : "/demo/approval-preview.mp4",
     owner: row.owner_name ?? "Creative",
     platform: row.platform,
     progress: row.progress ?? 100,

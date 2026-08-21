@@ -32,6 +32,7 @@ export type ContentItem = {
   unresolved: number;
   progress: number;
   accent: string;
+  mediaUrl?: string;
 };
 
 export type Metric = {
@@ -89,6 +90,7 @@ export const contentItems: ContentItem[] = [
     unresolved: 2,
     progress: 68,
     accent: "#0f8a5f",
+    mediaUrl: "/demo/approval-preview.mp4",
   },
   {
     id: "APL-1085",
@@ -105,6 +107,7 @@ export const contentItems: ContentItem[] = [
     unresolved: 0,
     progress: 100,
     accent: "#111111",
+    mediaUrl: "/demo/approval-preview.mp4",
   },
   {
     id: "APL-1088",
@@ -121,6 +124,7 @@ export const contentItems: ContentItem[] = [
     unresolved: 0,
     progress: 100,
     accent: "#2563eb",
+    mediaUrl: "/demo/approval-preview.mp4",
   },
   {
     id: "APL-1091",
@@ -137,6 +141,7 @@ export const contentItems: ContentItem[] = [
     unresolved: 0,
     progress: 100,
     accent: "#c2410c",
+    mediaUrl: "/demo/approval-preview.mp4",
   },
 ];
 

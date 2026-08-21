@@ -7,6 +7,8 @@ import {
   Building2,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ChevronDown,
   CircleAlert,
   Clock3,
@@ -24,18 +26,13 @@ import {
   LogOut,
   MessageCircle,
   MoreHorizontal,
-  PanelRight,
   Play,
   Plus,
-  Search,
   Send,
   Share2,
   ShieldCheck,
-  Smartphone,
-  Tag,
   Upload,
   Users,
-  Video,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -44,6 +41,7 @@ import {
   type ReactNode,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -64,6 +62,7 @@ import type { BootstrapPayload } from "@/lib/server/types";
 
 type Role = "Creative" | "Approver" | "Assistant";
 type View = "Dashboard" | "Campaigns" | "Inbox" | "Archive" | "Team";
+type ProjectStage = "campaign" | "folder" | "content";
 type ToastTone = "success" | "warning" | "neutral";
 type ActivityKind = "bell" | "check" | "archive" | "upload" | "comment" | "share";
 
@@ -115,6 +114,11 @@ type Toast = {
   id: number;
   message: string;
   tone: ToastTone;
+};
+
+type UploadProgress = {
+  label: string;
+  value: number;
 };
 
 type UploadDraft = {
@@ -258,9 +262,15 @@ const viewRoutes: Record<View, string> = {
 
 export default function PortalClient({
   initialCampaignId,
+  initialContentId,
+  initialFolderId,
+  initialStage,
   initialView,
 }: {
   initialCampaignId?: string;
+  initialContentId?: string;
+  initialFolderId?: string;
+  initialStage?: ProjectStage;
   initialView?: View;
 } = {}) {
   const router = useRouter();
@@ -278,15 +288,24 @@ export default function PortalClient({
   const [activeView, setActiveView] = useState<View>(
     initialView ?? (initialCampaignId ? "Campaigns" : "Dashboard"),
   );
-  const [projectId, setProjectId] = useState<string | null>(initialCampaignId ?? null);
-  const [query, setQuery] = useState("");
-  const [filterReviewOnly, setFilterReviewOnly] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [campaignOpen, setCampaignOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [commentOpen, setCommentOpen] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const [previewState, setPreviewState] = useState<{
+    itemId: string;
+    loading: boolean;
+    url?: string;
+  }>({ itemId: "", loading: false });
+  const [workspaceLoading, setWorkspaceLoading] = useState(isSupabaseBrowserConfigured());
   const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const projectId = initialCampaignId ?? null;
+  const projectStage = initialStage ?? "campaign";
+  const projectFolderId = initialFolderId ?? null;
+  const routeActiveItemId = initialContentId ?? activeItemId;
 
   useEffect(() => {
     if (!isSupabaseBrowserConfigured()) {
@@ -359,6 +378,7 @@ export default function PortalClient({
       const response = await fetch(`/api/share/${encodeURIComponent(shareToken)}`);
 
       if (!response.ok) {
+        setWorkspaceLoading(false);
         return;
       }
 
@@ -380,7 +400,8 @@ export default function PortalClient({
       });
 
       const firstCampaign = payload.campaigns[0];
-      const firstContent = payload.contentItems[0];
+      const firstContent =
+        payload.contentItems.find((item) => item.id === initialContentId) ?? payload.contentItems[0];
 
       if (firstCampaign) {
         setSelectedCompany(firstCampaign.company);
@@ -391,6 +412,7 @@ export default function PortalClient({
         setActiveItemId(firstContent.id);
         setActivePlatform(firstContent.platform);
       }
+      setWorkspaceLoading(false);
     }
 
     void loadPublicShare();
@@ -398,7 +420,7 @@ export default function PortalClient({
     return () => {
       cancelled = true;
     };
-  }, [session]);
+  }, [initialContentId, session]);
 
   useEffect(() => {
     const accessToken = session?.accessToken;
@@ -440,7 +462,10 @@ export default function PortalClient({
         const firstCampaign =
           payload.campaigns.find((campaign) => campaign.id === initialCampaignId) ??
           payload.campaigns[0];
-        const firstContent = payload.contentItems[0];
+        const firstContent =
+          payload.contentItems.find((item) => item.id === initialContentId) ??
+          payload.contentItems.find((item) => item.campaign === firstCampaign?.name) ??
+          payload.contentItems[0];
 
         if (firstCampaign) {
           setSelectedCompany(firstCampaign.company);
@@ -451,9 +476,11 @@ export default function PortalClient({
           setActiveItemId(firstContent.id);
           setActivePlatform(firstContent.platform);
         }
+        setWorkspaceLoading(false);
       } catch {
         if (!cancelled) {
           setSession((current) => current && { ...current, accessToken: undefined });
+          setWorkspaceLoading(false);
         }
       }
     }
@@ -463,7 +490,7 @@ export default function PortalClient({
     return () => {
       cancelled = true;
     };
-  }, [initialCampaignId, session?.accessToken]);
+  }, [initialCampaignId, initialContentId, session?.accessToken]);
 
   const notify = (message: string, tone: ToastTone = "success") => {
     const id = Date.now();
@@ -545,6 +572,44 @@ export default function PortalClient({
   );
   const isProjectPage = Boolean(projectId);
 
+  const projectContent = useMemo(
+    () =>
+      accessibleContent.filter(
+        (item) =>
+          item.campaign === currentProject?.name && item.company === currentProject?.company,
+      ),
+    [accessibleContent, currentProject?.company, currentProject?.name],
+  );
+
+  const projectFolders = useMemo(
+    () =>
+      folderList.filter((folder) =>
+        projectContent.some(
+          (item) => item.folder === folder.name || item.folder.startsWith(`${folder.name} /`),
+        ),
+      ),
+    [folderList, projectContent],
+  );
+
+  const routeContent = projectContent.find((item) => item.id === routeActiveItemId);
+  const currentFolder =
+    projectFolders.find((folder) => folder.id === projectFolderId) ??
+    projectFolders.find((folder) => folder.name === selectedFolder) ??
+    projectFolders.find(
+      (folder) =>
+        routeContent?.folder === folder.name || routeContent?.folder.startsWith(`${folder.name} /`),
+    );
+
+  const folderContent = useMemo(
+    () =>
+      projectContent.filter(
+        (item) =>
+          currentFolder &&
+          (item.folder === currentFolder.name || item.folder.startsWith(`${currentFolder.name} /`)),
+      ),
+    [currentFolder, projectContent],
+  );
+
   const firstCampaignForCompany = (company: string) => {
     const matches = campaignList.filter((campaign) => campaign.company === company);
     const allowed =
@@ -557,75 +622,74 @@ export default function PortalClient({
     return allowed[0]?.name ?? selectedCampaign;
   };
 
-  const scopedContent = useMemo(() => {
-    return contentList.filter((item) => {
-      const inCompany = item.company === selectedCompany;
-      const inCampaign = item.campaign === currentCampaign;
-      const isAssigned =
-        session?.role !== "Approver" ||
-        capabilities.assignedCampaigns?.includes(item.campaign);
-
-      return inCompany && inCampaign && isAssigned;
-    });
-  }, [
-    capabilities.assignedCampaigns,
-    currentCampaign,
-    contentList,
-    selectedCompany,
-    session?.role,
-  ]);
-
-  const queueContent = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-
-    return scopedContent.filter((item) => {
-      const folderMatch =
-        selectedFolder === "All folders" ||
-        item.folder.toLowerCase().includes(selectedFolder.toLowerCase());
-      const queryMatch =
-        !normalizedQuery ||
-        [item.id, item.title, item.owner, item.folder, item.platform, ...item.tags]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedQuery);
-      const reviewMatch =
-        !filterReviewOnly ||
-        item.status === "Submitted" ||
-        item.status === "In Review" ||
-        item.status === "Changes Requested";
-      const viewMatch =
-        activeView === "Archive"
-          ? item.status === "Archive Scheduled" || item.status === "Approved"
-          : activeView === "Inbox"
-            ? item.status === "Submitted" ||
-              item.status === "In Review" ||
-              item.status === "Changes Requested"
-            : true;
-
-      return folderMatch && queryMatch && reviewMatch && viewMatch;
-    });
-  }, [activeView, filterReviewOnly, query, scopedContent, selectedFolder]);
-
   const activeItem =
-    (isProjectPage ? scopedContent : accessibleContent).find((item) => item.id === activeItemId) ??
-    queueContent[0] ??
-    scopedContent[0] ??
+    (isProjectPage ? projectContent : accessibleContent).find((item) => item.id === routeActiveItemId) ??
+    projectContent[0] ??
     accessibleContent[0];
   const activeComments = activeItem
     ? commentList.filter((comment) => comment.contentId === activeItem.id)
     : [];
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!activeItem?.storageKey || activeItem.mediaUrl || !session?.accessToken) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void apiRequest<{ downloadUrl?: string }>(
+      `/api/content/${activeItem.id}/download?final=false`,
+      session.accessToken,
+    )
+      .then((saved) => {
+        if (!cancelled) {
+          setPreviewState({
+            itemId: activeItem.id,
+            loading: false,
+            url: saved.downloadUrl,
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreviewState({ itemId: activeItem.id, loading: false });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPreviewState((current) =>
+            current.itemId === activeItem.id ? { ...current, loading: false } : current,
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeItem?.id, activeItem?.mediaUrl, activeItem?.storageKey, session?.accessToken]);
+
+  const previewUrl =
+    activeItem?.mediaUrl ??
+    (previewState.itemId === activeItem?.id ? previewState.url : undefined);
+  const previewLoading = Boolean(
+    activeItem?.storageKey &&
+      !activeItem.mediaUrl &&
+      (previewState.itemId !== activeItem.id || previewState.loading),
+  );
+
   const metrics = useMemo(() => {
-    const pending = contentList.filter((item) =>
+    const pending = accessibleContent.filter((item) =>
       ["Submitted", "In Review", "Changes Requested"].includes(item.status),
     ).length;
-    const openComments = contentList.reduce((total, item) => total + item.unresolved, 0);
-    const approved = contentList.filter((item) => item.status === "Approved").length;
-    const storage = contentList.reduce((total, item) => total + sizeToGb(item.size), 0);
+    const openComments = commentList.filter((comment) => comment.status === "Open").length;
+    const approved = accessibleContent.filter((item) => item.status === "Approved").length;
+    const storage = accessibleContent.reduce((total, item) => total + sizeToGb(item.size), 0);
 
     return [
       {
-        detail: `${queueContent.length} visible in this campaign`,
+        detail: `${accessibleContent.length} visible across your workspace`,
         icon: Clock3,
         label: "Pending approval",
         tone: "blue" as const,
@@ -653,7 +717,7 @@ export default function PortalClient({
         value: `${storage.toFixed(1)}GB`,
       },
     ];
-  }, [commentList.length, contentList, queueContent.length]);
+  }, [accessibleContent, commentList]);
 
   const addActivity = (kind: ActivityKind, title: string, meta = "Just now") => {
     setActivityList((items) => [
@@ -694,6 +758,7 @@ export default function PortalClient({
     }
 
     setSession(nextSession);
+    setWorkspaceLoading(Boolean(nextSession.accessToken));
     setActiveView(initialCampaignId ? "Campaigns" : "Dashboard");
     const project = initialCampaignId
       ? campaignList.find((campaign) => campaign.id === initialCampaignId)
@@ -713,6 +778,7 @@ export default function PortalClient({
 
     window.sessionStorage.removeItem("approveLyDemoSession");
     setSession(null);
+    setWorkspaceLoading(false);
     notify("Signed out", "neutral");
   };
 
@@ -721,9 +787,11 @@ export default function PortalClient({
       return;
     }
 
+    setUploadProgress({ label: "Preparing upload", value: 8 });
     let storageKey: string | undefined;
 
     if (draft.file && session?.accessToken) {
+      setUploadProgress({ label: "Preparing secure file upload", value: 20 });
       const presign = await callBackend<{
         bucket: string;
         contentType: string;
@@ -744,6 +812,7 @@ export default function PortalClient({
         return;
       }
 
+      setUploadProgress({ label: "Uploading file", value: 48 });
       const { error: uploadError } = await createBrowserSupabaseClient()
         .storage
         .from(presign.bucket)
@@ -759,6 +828,7 @@ export default function PortalClient({
       storageKey = presign.storageKey;
     }
 
+    setUploadProgress({ label: "Saving content details", value: 78 });
     const folderName = draft.folder.trim() || "Unsorted";
     const tags = buildContentTags(draft.tags, draft.talent);
     const saved = await callBackend<{ item: PortalContent }>("/api/content", {
@@ -780,6 +850,7 @@ export default function PortalClient({
     });
 
     if (saved?.item) {
+      setUploadProgress({ label: "Upload complete", value: 100 });
       setContentList((items) => [saved.item, ...items]);
       setFolderList((items) => bumpFolderCount(items, saved.item.folder));
       setActiveItemId(saved.item.id);
@@ -814,8 +885,10 @@ export default function PortalClient({
       type: draft.type,
       unresolved: 0,
       version: "V1",
+      mediaUrl: "/demo/approval-preview.mp4",
     };
 
+    setUploadProgress({ label: "Upload complete", value: 100 });
     setContentList((items) => [nextItem, ...items]);
     setFolderList((items) => bumpFolderCount(items, folderName));
     setActiveItemId(nextItem.id);
@@ -1132,7 +1205,7 @@ export default function PortalClient({
   };
 
   const handleBundleDownload = () => {
-    const bundle = queueContent.filter((item) => item.status === "Approved");
+    const bundle = projectContent.filter((item) => item.status === "Approved");
 
     if (!bundle.length) {
       notify("No approved files in this view to bundle.", "warning");
@@ -1239,7 +1312,6 @@ export default function PortalClient({
   };
 
   const openProject = (campaign: PortalCampaign) => {
-    setProjectId(campaign.id);
     setActiveView("Campaigns");
     setSelectedCompany(campaign.company);
     setSelectedCampaign(campaign.name);
@@ -1247,8 +1319,36 @@ export default function PortalClient({
     router.push(`/campaigns/${encodeURIComponent(campaign.id)}`);
   };
 
+  const openFolder = (folder: PortalFolder) => {
+    if (!projectId) {
+      return;
+    }
+
+    setSelectedFolder(folder.name);
+    router.push(`/campaigns/${encodeURIComponent(projectId)}/folders/${encodeURIComponent(folder.id)}`);
+  };
+
+  const openApproval = (item: PortalContent) => {
+    if (!projectId) {
+      return;
+    }
+
+    setActiveItemId(item.id);
+    setActivePlatform(item.platform);
+    router.push(`/campaigns/${encodeURIComponent(projectId)}/content/${encodeURIComponent(item.id)}`);
+  };
+
+  const moveApproval = (direction: "next" | "previous") => {
+    const index = projectContent.findIndex((item) => item.id === routeActiveItemId);
+    const nextIndex = direction === "next" ? index + 1 : index - 1;
+    const nextItem = projectContent[nextIndex];
+
+    if (nextItem) {
+      openApproval(nextItem);
+    }
+  };
+
   const navigateToView = (view: View) => {
-    setProjectId(null);
     setActiveView(view);
     router.push(viewRoutes[view]);
   };
@@ -1263,19 +1363,43 @@ export default function PortalClient({
       return;
     }
 
+    setSelectedCompany(campaign.company);
+    setSelectedCampaign(campaign.name);
     setActiveItemId(item.id);
     setActivePlatform(item.platform);
-    openProject(campaign);
+    router.push(`/campaigns/${encodeURIComponent(campaign.id)}/content/${encodeURIComponent(item.id)}`);
   };
 
   const closeProject = () => {
-    setProjectId(null);
     setActiveView("Dashboard");
     router.push(viewRoutes.Dashboard);
   };
 
+  const backToCampaign = () => {
+    if (!projectId) {
+      return;
+    }
+
+    setSelectedFolder("All folders");
+    router.push(`/campaigns/${encodeURIComponent(projectId)}`);
+  };
+
+  const backToFolder = () => {
+    if (!projectId || !currentFolder) {
+      return;
+    }
+
+    router.push(
+      `/campaigns/${encodeURIComponent(projectId)}/folders/${encodeURIComponent(currentFolder.id)}`,
+    );
+  };
+
   if (!session) {
     return <LoginScreen onLogin={handleLogin} />;
+  }
+
+  if (session.accessToken && workspaceLoading) {
+    return <WorkspaceLoadingScreen name={session.name} />;
   }
 
   return (
@@ -1293,76 +1417,89 @@ export default function PortalClient({
         <section className="flex min-w-0 flex-1 flex-col gap-4">
           {isProjectPage ? (
             <>
-              <ProjectHeader
-                campaign={currentProject ?? visibleCampaigns[0]}
-                name={session.name}
-                onBack={closeProject}
-                onNewUpload={() => {
-                  if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
-                    setUploadOpen(true);
-                  }
-                }}
-                role={session.role}
-              />
-              <section className="grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(380px,0.95fr)]">
-                <CampaignWorkspace
-                  activeItemId={activeItem?.id}
-                  activeView={activeView}
-                  campaigns={[]}
-                  contentItems={queueContent}
-                  filterReviewOnly={filterReviewOnly}
-                  focused
-                  folders={folderList}
-                  onAddCampaign={() => setCampaignOpen(true)}
-                  onAddFolder={() => {
-                    if (requirePermission(capabilities.canCreate, "Only Creatives can create folders.")) {
-                      setFolderOpen(true);
-                    }
-                  }}
-                  onDownload={handleDownload}
-                  onFolderSelect={setSelectedFolder}
-                  onMore={(item) => {
-                    setActiveItemId(item.id);
-                    setShareOpen(true);
-                  }}
-                  onSearch={setQuery}
-                  onSelectCampaign={openProject}
-                  onSelectItem={(item) => {
-                    setActiveItemId(item.id);
-                    setActivePlatform(item.platform);
-                  }}
-                  onToggleFilter={() => setFilterReviewOnly((value) => !value)}
-                  onUpload={() => {
-                    if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
-                      setUploadOpen(true);
-                    }
-                  }}
-                  query={query}
-                  selectedCampaign={currentCampaign}
-                  selectedFolder={selectedFolder}
-                />
-                <ApprovalWorkspace
-                  activeComments={activeComments}
-                  activeItem={activeItem}
-                  activePlatform={activePlatform}
-                  activityList={activityList}
-                  canArchive={capabilities.canArchive}
-                  canApprove={capabilities.canApprove}
-                  canComment={capabilities.canComment}
-                  onAddComment={() => {
-                    if (requirePermission(capabilities.canComment, "Assistant view is read-only.")) {
-                      setCommentOpen(true);
-                    }
-                  }}
-                  onApprove={handleApprove}
-                  onArchive={handleArchive}
-                  onBundleDownload={handleBundleDownload}
-                  onDownload={handleDownload}
-                  onPlatformChange={setActivePlatform}
-                  onResolveComment={handleResolveComment}
-                  onShare={() => setShareOpen(true)}
-                />
-              </section>
+              {projectStage === "content" ? (
+                <>
+                  <ApprovalHeader
+                    campaign={currentProject ?? visibleCampaigns[0]}
+                    folder={currentFolder}
+                    item={activeItem}
+                    onBack={backToFolder}
+                  />
+                  <ApprovalWorkspace
+                    activeComments={activeComments}
+                    activeItem={activeItem}
+                    activePlatform={activePlatform}
+                    activityList={activityList}
+                    canArchive={capabilities.canArchive}
+                    canApprove={capabilities.canApprove}
+                    canComment={capabilities.canComment}
+                    focused
+                    hasNextItem={Boolean(projectContent[projectContent.findIndex((item) => item.id === routeActiveItemId) + 1])}
+                    hasPreviousItem={Boolean(projectContent[projectContent.findIndex((item) => item.id === routeActiveItemId) - 1])}
+                    onAddComment={() => {
+                      if (requirePermission(capabilities.canComment, "Assistant view is read-only.")) {
+                        setCommentOpen(true);
+                      }
+                    }}
+                    onApprove={handleApprove}
+                    onArchive={handleArchive}
+                    onBundleDownload={handleBundleDownload}
+                    onDownload={handleDownload}
+                    onNextItem={() => moveApproval("next")}
+                    onPlatformChange={setActivePlatform}
+                    onPreviousItem={() => moveApproval("previous")}
+                    onResolveComment={handleResolveComment}
+                    onShare={() => setShareOpen(true)}
+                    previewLoading={previewLoading}
+                    previewUrl={previewUrl}
+                  />
+                </>
+              ) : (
+                <>
+                  <ProjectHeader
+                    campaign={currentProject ?? visibleCampaigns[0]}
+                    name={session.name}
+                    onBack={projectStage === "folder" ? backToCampaign : closeProject}
+                    onNewUpload={() => {
+                      if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
+                        setUploadOpen(true);
+                      }
+                    }}
+                    role={session.role}
+                  />
+                  {projectStage === "campaign" ? (
+                    <CampaignOverviewPage
+                      campaign={currentProject ?? visibleCampaigns[0]}
+                      contentItems={projectContent}
+                      folders={projectFolders}
+                      onAddFolder={() => {
+                        if (requirePermission(capabilities.canCreate, "Only Creatives can create folders.")) {
+                          setFolderOpen(true);
+                        }
+                      }}
+                      onOpenFolder={openFolder}
+                      onUpload={() => {
+                        if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
+                          setUploadOpen(true);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <FolderContentPage
+                      campaign={currentProject ?? visibleCampaigns[0]}
+                      folder={currentFolder}
+                      items={folderContent}
+                      onBack={backToCampaign}
+                      onDownload={handleDownload}
+                      onMore={(item) => {
+                        setActiveItemId(item.id);
+                        setShareOpen(true);
+                      }}
+                      onOpenItem={openApproval}
+                    />
+                  )}
+                </>
+              )}
             </>
           ) : (
             <>
@@ -1464,9 +1601,12 @@ export default function PortalClient({
           defaultFolder={selectedFolder === "All folders" ? defaultUploadDraft.folder : selectedFolder}
           folders={folderList}
           onClose={() => setUploadOpen(false)}
+          progress={uploadProgress}
           onSubmit={(draft) => {
-            handleUpload(draft);
-            setUploadOpen(false);
+            void handleUpload(draft).finally(() => {
+              setUploadOpen(false);
+              setUploadProgress(null);
+            });
           }}
         />
       ) : null}
@@ -1798,6 +1938,202 @@ function ProjectHeader({
         </div>
       ) : null}
     </header>
+  );
+}
+
+function CampaignOverviewPage({
+  campaign,
+  contentItems,
+  folders,
+  onAddFolder,
+  onOpenFolder,
+  onUpload,
+}: {
+  campaign?: PortalCampaign;
+  contentItems: PortalContent[];
+  folders: PortalFolder[];
+  onAddFolder: () => void;
+  onOpenFolder: (folder: PortalFolder) => void;
+  onUpload: () => void;
+}) {
+  const pending = contentItems.filter((item) =>
+    ["Submitted", "In Review", "Changes Requested"].includes(item.status),
+  ).length;
+  const approved = contentItems.filter((item) =>
+    ["Approved", "Archive Scheduled"].includes(item.status),
+  ).length;
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
+      <Panel
+        title="Folders"
+        action={
+          <div className="flex items-center gap-2">
+            <IconButton label="Add folder" icon={FolderPlus} onClick={onAddFolder} />
+            <IconButton label="Upload content" icon={Upload} onClick={onUpload} />
+          </div>
+        }
+      >
+        {folders.length ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {folders.map((folder) => {
+              const count = contentItems.filter(
+                (item) => item.folder === folder.name || item.folder.startsWith(`${folder.name} /`),
+              ).length;
+
+              return (
+                <button
+                  className="group flex min-h-28 items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-zinc-400 hover:shadow-sm"
+                  key={folder.id}
+                  onClick={() => onOpenFolder(folder)}
+                  type="button"
+                >
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span className="grid size-11 shrink-0 place-items-center rounded-md bg-zinc-100 text-zinc-700">
+                      <Folder aria-hidden className="size-5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-zinc-950">{folder.name}</span>
+                      <span className="mt-1 block text-xs text-zinc-500">{count} content item{count === 1 ? "" : "s"}</span>
+                    </span>
+                  </span>
+                  <ArrowUpRight aria-hidden className="size-4 shrink-0 text-zinc-400 transition group-hover:text-zinc-950" />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState icon={Folder} title="No folders yet" />
+        )}
+      </Panel>
+
+      <Panel title="Campaign status">
+        <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+          <MiniStat label="Content items" value={String(contentItems.length)} />
+          <MiniStat label="Awaiting approval" value={String(pending)} />
+          <MiniStat label="Approved" value={String(approved)} />
+        </div>
+        <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+          <div className="flex items-center justify-between gap-3 text-sm font-semibold">
+            <span>{campaign?.name ?? "Campaign"}</span>
+            <span>{campaign?.progress ?? 0}%</span>
+          </div>
+          <ProgressBar value={campaign?.progress ?? 0} className="mt-3" />
+          <p className="mt-2 text-xs text-zinc-500">Due {campaign?.due ?? "No due date"}</p>
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+function FolderContentPage({
+  campaign,
+  folder,
+  items,
+  onBack,
+  onDownload,
+  onMore,
+  onOpenItem,
+}: {
+  campaign?: PortalCampaign;
+  folder?: PortalFolder;
+  items: PortalContent[];
+  onBack: () => void;
+  onDownload: (item: PortalContent) => void;
+  onMore: (item: PortalContent) => void;
+  onOpenItem: (item: PortalContent) => void;
+}) {
+  return (
+    <>
+      <PageIntro
+        action={
+          <button
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-300"
+            onClick={onBack}
+            type="button"
+          >
+            <ArrowLeft aria-hidden className="size-4" />
+            Campaign folders
+          </button>
+        }
+        description={`${campaign?.name ?? "Campaign"} / ${folder?.name ?? "Folder"}`}
+        eyebrow="Folder contents"
+        title={folder?.name ?? "Folder"}
+      />
+      <Panel title={`${items.length} content item${items.length === 1 ? "" : "s"}`}>
+        {items.length ? (
+          <div className="grid gap-3">
+            {items.map((item) => (
+              <ContentCard
+                active={false}
+                item={item}
+                key={item.id}
+                onDownload={() => onDownload(item)}
+                onMore={() => onMore(item)}
+                onSelect={() => onOpenItem(item)}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState icon={FileStack} title="No content in this folder" />
+        )}
+      </Panel>
+    </>
+  );
+}
+
+function ApprovalHeader({
+  campaign,
+  folder,
+  item,
+  onBack,
+}: {
+  campaign?: PortalCampaign;
+  folder?: PortalFolder;
+  item?: PortalContent;
+  onBack: () => void;
+}) {
+  return (
+    <header className="border-b border-zinc-200 pb-5">
+      <button
+        className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-500 transition hover:text-zinc-950"
+        onClick={onBack}
+        type="button"
+      >
+        <ArrowLeft aria-hidden className="size-4" />
+        {folder?.name ?? "Folder contents"}
+      </button>
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-zinc-500">
+        <span>{campaign?.company ?? "Campaign"}</span>
+        <span className="text-zinc-300">/</span>
+        <span>{campaign?.name ?? "Campaign"}</span>
+        <span className="text-zinc-300">/</span>
+        <span>{folder?.name ?? item?.folder ?? "Content"}</span>
+      </div>
+      <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="truncate text-3xl font-semibold tracking-tight text-zinc-950 sm:text-4xl">
+            {item?.title ?? "Approval review"}
+          </h1>
+          <p className="mt-2 text-sm text-zinc-600">{item?.id ?? "Select content to review"}</p>
+        </div>
+        {item ? <StatusBadge status={item.status} /> : null}
+      </div>
+    </header>
+  );
+}
+
+function WorkspaceLoadingScreen({ name }: { name: string }) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#f7f7f4] px-4 text-zinc-950">
+      <section className="w-full max-w-md rounded-lg border border-[#dedbd2] bg-white p-6 text-center shadow-sm">
+        <div className="mx-auto grid size-12 place-items-center rounded-md bg-zinc-950 text-sm font-semibold text-white">A</div>
+        <h1 className="mt-4 text-xl font-semibold">Loading {name}&apos;s workspace</h1>
+        <div className="mt-5 h-2 overflow-hidden rounded-full bg-zinc-100" role="progressbar" aria-label="Loading workspace">
+          <div className="h-full w-2/3 animate-pulse rounded-full bg-emerald-600" />
+        </div>
+      </section>
+    </main>
   );
 }
 
@@ -2433,240 +2769,6 @@ function DashboardStatusOverview({
   );
 }
 
-function CampaignWorkspace({
-  activeItemId,
-  activeView,
-  campaigns,
-  contentItems,
-  filterReviewOnly,
-  focused = false,
-  folders,
-  onAddCampaign,
-  onAddFolder,
-  onDownload,
-  onFolderSelect,
-  onMore,
-  onSearch,
-  onSelectCampaign,
-  onSelectItem,
-  onToggleFilter,
-  onUpload,
-  query,
-  selectedCampaign,
-  selectedFolder,
-}: {
-  activeItemId?: string;
-  activeView: View;
-  campaigns: PortalCampaign[];
-  contentItems: PortalContent[];
-  filterReviewOnly: boolean;
-  focused?: boolean;
-  folders: PortalFolder[];
-  onAddCampaign: () => void;
-  onAddFolder: () => void;
-  onDownload: (item: PortalContent, final?: boolean) => void;
-  onFolderSelect: (folder: string) => void;
-  onMore: (item: PortalContent) => void;
-  onSearch: (query: string) => void;
-  onSelectCampaign: (campaign: PortalCampaign) => void;
-  onSelectItem: (item: PortalContent) => void;
-  onToggleFilter: () => void;
-  onUpload: () => void;
-  query: string;
-  selectedCampaign: string;
-  selectedFolder: string;
-}) {
-  return (
-    <section className="flex min-w-0 flex-col gap-4">
-      {!focused ? (
-        <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_330px]">
-          <Panel title={activeView === "Team" ? "Assigned campaigns" : "Campaigns"} action={<IconButton label="Add campaign" icon={Plus} onClick={onAddCampaign} />}>
-            <div className="grid gap-3">
-              {campaigns.map((campaign) => (
-                <button
-                  key={campaign.id}
-                  className={`rounded-lg border bg-white p-3 text-left transition hover:border-zinc-300 ${
-                    selectedCampaign === campaign.name ? "border-zinc-950" : "border-zinc-200"
-                  }`}
-                  onClick={() => onSelectCampaign(campaign)}
-                  type="button"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h2 className="truncate text-base font-semibold">{campaign.name}</h2>
-                      <p className="mt-1 text-sm text-zinc-500">{campaign.company}</p>
-                    </div>
-                    <span className="rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
-                      {campaign.status}
-                    </span>
-                  </div>
-                  <div className="mt-4 flex items-center justify-between gap-3 text-sm text-zinc-600">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Clock3 aria-hidden className="size-4" />
-                      {campaign.due}
-                    </span>
-                    <span className="inline-flex items-center gap-1.5">
-                      <Users aria-hidden className="size-4" />
-                      {campaign.approvers}
-                    </span>
-                  </div>
-                  <ProgressBar value={campaign.progress} className="mt-3" />
-                </button>
-              ))}
-            </div>
-          </Panel>
-
-          <UploadPanel onUpload={onUpload} />
-        </div>
-      ) : null}
-
-      <Panel title="Campaign folders" action={<IconButton label="Add folder" icon={FolderPlus} onClick={onAddFolder} />}>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <FolderButton
-            active={selectedFolder === "All folders"}
-            count={contentItems.length}
-            name="All folders"
-            onClick={() => onFolderSelect("All folders")}
-          />
-          {folders.map((folder) => (
-            <FolderButton
-              active={selectedFolder === folder.name}
-              count={folder.count}
-              key={folder.id}
-              name={folder.name}
-              onClick={() => onFolderSelect(folder.name)}
-            />
-          ))}
-        </div>
-      </Panel>
-
-      <Panel
-        title={activeView === "Archive" ? "Download queue" : "Content queue"}
-        action={
-          <div className="flex items-center gap-2">
-            <div className="hidden h-10 items-center rounded-md border border-zinc-200 bg-white px-3 sm:flex">
-              <Search aria-hidden className="mr-2 size-4 text-zinc-500" />
-              <input
-                className="w-40 bg-transparent text-sm outline-none"
-                onChange={(event) => onSearch(event.target.value)}
-                placeholder="Search"
-                value={query}
-              />
-            </div>
-            <IconButton label="Search" icon={Search} onClick={() => onSearch(query ? "" : selectedCampaign)} />
-            <IconButton
-              active={filterReviewOnly}
-              label="Filter"
-              icon={PanelRight}
-              onClick={onToggleFilter}
-            />
-          </div>
-        }
-      >
-        <div className="grid gap-3">
-          {contentItems.length ? (
-            contentItems.map((item) => (
-              <ContentCard
-                active={activeItemId === item.id}
-                item={item}
-                key={item.id}
-                onDownload={() => onDownload(item)}
-                onMore={() => onMore(item)}
-                onSelect={() => onSelectItem(item)}
-              />
-            ))
-          ) : (
-            <EmptyState icon={Folder} title="No content in this view" />
-          )}
-        </div>
-      </Panel>
-    </section>
-  );
-}
-
-function UploadPanel({ onUpload }: { onUpload: () => void }) {
-  return (
-    <Panel title="Upload brief" action={<IconButton label="Upload" icon={Upload} onClick={onUpload} />}>
-      <button
-        className="w-full rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-4 text-left transition hover:border-zinc-400"
-        onClick={onUpload}
-        type="button"
-      >
-        <div className="flex items-start gap-3">
-          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-white text-zinc-700 shadow-sm">
-            <Upload aria-hidden className="size-5" />
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold">Direct upload ready</h2>
-            <p className="mt-1 text-sm leading-5 text-zinc-600">
-              Source assets, platform tags, folder labels, and due dates are captured together.
-            </p>
-          </div>
-        </div>
-        <div className="mt-4 grid gap-2">
-          <Field label="Content type" value="Video, Image, Carousel" icon={FileStack} />
-          <Field label="Platforms" value="Instagram, TikTok, YouTube Shorts" icon={Smartphone} />
-          <Field label="Max file" value="50MB per file" icon={Video} />
-          <Field label="Tags" value="Paid social, launch, creator" icon={Tag} />
-        </div>
-      </button>
-      <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
-        <div className="flex items-start gap-2 text-sm text-orange-900">
-          <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0" />
-          <p className="leading-5">
-            Storage warning at 85%. Approved files can move into the archive queue after final download.
-          </p>
-        </div>
-      </div>
-    </Panel>
-  );
-}
-
-function Field({ label, value, icon: Icon }: { label: string; value: string; icon: LucideIcon }) {
-  return (
-    <div className="flex items-center gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2">
-      <Icon aria-hidden className="size-4 shrink-0 text-zinc-500" />
-      <div className="min-w-0">
-        <p className="text-xs font-medium text-zinc-500">{label}</p>
-        <p className="truncate text-sm font-semibold text-zinc-900">{value}</p>
-      </div>
-    </div>
-  );
-}
-
-function FolderButton({
-  active,
-  count,
-  name,
-  onClick,
-}: {
-  active: boolean;
-  count: number;
-  name: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={`flex h-16 items-center justify-between rounded-lg border bg-white px-3 text-left transition hover:border-zinc-300 ${
-        active ? "border-zinc-950" : "border-zinc-200"
-      }`}
-      onClick={onClick}
-      type="button"
-    >
-      <span className="flex min-w-0 items-center gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-zinc-100 text-zinc-700">
-          <Folder aria-hidden className="size-4" />
-        </span>
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-semibold">{name}</span>
-          <span className="text-xs text-zinc-500">{count} items</span>
-        </span>
-      </span>
-      <ChevronDown aria-hidden className="size-4 -rotate-90 text-zinc-400" />
-    </button>
-  );
-}
-
 function ContentCard({
   active,
   item,
@@ -2775,14 +2877,21 @@ function ApprovalWorkspace({
   canArchive,
   canApprove,
   canComment,
+  focused = false,
+  hasNextItem,
+  hasPreviousItem,
   onAddComment,
   onApprove,
   onArchive,
   onBundleDownload,
   onDownload,
+  onNextItem,
   onPlatformChange,
+  onPreviousItem,
   onResolveComment,
   onShare,
+  previewLoading,
+  previewUrl,
 }: {
   activeComments: PortalComment[];
   activeItem?: PortalContent;
@@ -2791,15 +2900,24 @@ function ApprovalWorkspace({
   canArchive: boolean;
   canApprove: boolean;
   canComment: boolean;
+  focused?: boolean;
+  hasNextItem: boolean;
+  hasPreviousItem: boolean;
   onAddComment: () => void;
   onApprove: () => void;
   onArchive: (item: PortalContent) => void;
   onBundleDownload: () => void;
   onDownload: (item: PortalContent, final?: boolean) => void;
+  onNextItem: () => void;
   onPlatformChange: (platform: Platform) => void;
+  onPreviousItem: () => void;
   onResolveComment: (commentId: string) => void;
   onShare: () => void;
+  previewLoading: boolean;
+  previewUrl?: string;
 }) {
+  const touchStartX = useRef<number | null>(null);
+
   if (!activeItem) {
     return (
       <section className="flex min-w-0 flex-col gap-4">
@@ -2811,7 +2929,38 @@ function ApprovalWorkspace({
   }
 
   return (
-    <section className="flex min-w-0 flex-col gap-4">
+    <section
+      className="flex min-w-0 flex-col gap-4"
+      onTouchEnd={(event) => {
+        if (touchStartX.current === null) {
+          return;
+        }
+
+        const startX = touchStartX.current;
+        const currentX = event.changedTouches[0]?.clientX;
+        touchStartX.current = null;
+
+        if (startX === null || currentX === undefined) {
+          return;
+        }
+
+        const distance = currentX - startX;
+
+        if (Math.abs(distance) < 60) {
+          return;
+        }
+
+        if (distance < 0 && hasNextItem) {
+          onNextItem();
+        }
+        if (distance > 0 && hasPreviousItem) {
+          onPreviousItem();
+        }
+      }}
+      onTouchStart={(event) => {
+        touchStartX.current = event.touches[0]?.clientX ?? null;
+      }}
+    >
       <Panel
         title="Approval review"
         action={
@@ -2824,8 +2973,11 @@ function ApprovalWorkspace({
         <div className="grid gap-4 lg:grid-cols-[minmax(260px,0.92fr)_minmax(260px,1fr)] xl:grid-cols-1 2xl:grid-cols-[minmax(260px,0.92fr)_minmax(260px,1fr)]">
           <PlatformPreview
             item={activeItem}
+            key={activeItem.id}
             platform={activePlatform}
             onPlatformChange={onPlatformChange}
+            previewLoading={previewLoading}
+            previewUrl={previewUrl}
           />
           <ReviewPanel
             canApprove={canApprove}
@@ -2834,18 +2986,26 @@ function ApprovalWorkspace({
             item={activeItem}
             onAddComment={onAddComment}
             onApprove={onApprove}
+            hasNextItem={hasNextItem}
+            hasPreviousItem={hasPreviousItem}
+            onNextItem={onNextItem}
+            onPreviousItem={onPreviousItem}
             onResolveComment={onResolveComment}
           />
         </div>
       </Panel>
-      <ArchivePanel
-        canArchive={canArchive}
-        item={activeItem}
-        onArchive={() => onArchive(activeItem)}
-        onBundleDownload={onBundleDownload}
-        onFinalDownload={() => onDownload(activeItem, true)}
-      />
-      <ActivityPanel activityList={activityList} />
+      {!focused ? (
+        <>
+          <ArchivePanel
+            canArchive={canArchive}
+            item={activeItem}
+            onArchive={() => onArchive(activeItem)}
+            onBundleDownload={onBundleDownload}
+            onFinalDownload={() => onDownload(activeItem, true)}
+          />
+          <ActivityPanel activityList={activityList} />
+        </>
+      ) : null}
     </section>
   );
 }
@@ -2854,13 +3014,31 @@ function PlatformPreview({
   item,
   onPlatformChange,
   platform,
+  previewLoading,
+  previewUrl,
 }: {
   item: PortalContent;
   onPlatformChange: (platform: Platform) => void;
   platform: Platform;
+  previewLoading: boolean;
+  previewUrl?: string;
 }) {
   const tabs: Platform[] = ["Instagram", "TikTok", "YouTube Shorts"];
   const [playing, setPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const togglePlayback = () => {
+    if (!videoRef.current) {
+      setPlaying((value) => !value);
+      return;
+    }
+
+    if (videoRef.current.paused) {
+      void videoRef.current.play();
+    } else {
+      videoRef.current.pause();
+    }
+  };
 
   return (
     <div className="min-w-0">
@@ -2886,12 +3064,30 @@ function PlatformPreview({
               background: `radial-gradient(circle at 35% 20%, ${item.accent}, transparent 28%), linear-gradient(160deg, #121212 10%, ${item.accent} 48%, #18181b 100%)`,
             }}
           />
-          <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4 py-3 text-xs font-semibold">
+          {previewUrl ? (
+            <video
+              className="absolute inset-0 z-[1] size-full object-cover"
+              loop
+              muted
+              onPause={() => setPlaying(false)}
+              onPlay={() => setPlaying(true)}
+              playsInline
+              preload="metadata"
+              ref={videoRef}
+              src={previewUrl}
+            />
+          ) : null}
+          {previewLoading ? (
+            <div className="absolute inset-0 z-20 grid place-items-center bg-zinc-950/70 text-sm font-semibold text-white">
+              Loading preview...
+            </div>
+          ) : null}
+          <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-4 py-3 text-xs font-semibold">
             <span>9:41</span>
             <span className="rounded-md bg-black/35 px-2 py-1">{platformLabel(platform)}</span>
           </div>
-          <div className="absolute inset-x-8 top-20 bottom-28 rounded-md border border-white/35" />
-          <div className="absolute left-4 right-16 bottom-5">
+          <div className="absolute inset-x-8 top-20 bottom-28 z-10 rounded-md border border-white/35" />
+          <div className="absolute bottom-5 left-4 right-16 z-10">
             <div className="flex items-center gap-2">
               <div className="grid size-8 place-items-center rounded-md bg-white text-xs font-bold text-zinc-950">
                 {item.company.slice(0, 2).toUpperCase()}
@@ -2901,21 +3097,21 @@ function PlatformPreview({
             <p className="mt-3 text-sm leading-5">{item.title}</p>
             <p className="mt-2 text-xs text-white/80">{item.campaign} / {item.version}</p>
           </div>
-          <div className="absolute bottom-7 right-3 flex flex-col gap-4">
+          <div className="absolute bottom-7 right-3 z-10 flex flex-col gap-4">
             <PreviewIcon icon={Check} label={platform === "Instagram" ? "12k" : platform === "TikTok" ? "88k" : "6.4k"} />
             <PreviewIcon icon={MessageCircle} label={String(item.comments)} />
             <PreviewIcon icon={Send} label="Share" />
           </div>
           <button
             aria-label="Play preview"
-            className="absolute left-1/2 top-1/2 grid size-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-md bg-white/20 backdrop-blur transition hover:bg-white/30"
-            onClick={() => setPlaying((value) => !value)}
+            className="absolute left-1/2 top-1/2 z-20 grid size-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-md bg-white/20 backdrop-blur transition hover:bg-white/30"
+            onClick={togglePlayback}
             type="button"
           >
             {playing ? <Check aria-hidden className="size-7 text-white" /> : <Play aria-hidden className="size-7 fill-white text-white" />}
           </button>
-          <div className="absolute left-[42%] top-[47%] size-5 rounded-md border-2 border-amber-300 bg-amber-300/20" />
-          <div className="absolute left-[58%] top-[36%] h-12 w-16 rounded-md border-2 border-blue-300 bg-blue-300/15" />
+          <div className="absolute left-[42%] top-[47%] z-10 size-5 rounded-md border-2 border-amber-300 bg-amber-300/20" />
+          <div className="absolute left-[58%] top-[36%] z-10 h-12 w-16 rounded-md border-2 border-blue-300 bg-blue-300/15" />
         </div>
       </div>
     </div>
@@ -2937,17 +3133,25 @@ function ReviewPanel({
   canApprove,
   canComment,
   comments,
+  hasNextItem,
+  hasPreviousItem,
   item,
   onAddComment,
   onApprove,
+  onNextItem,
+  onPreviousItem,
   onResolveComment,
 }: {
   canApprove: boolean;
   canComment: boolean;
   comments: PortalComment[];
+  hasNextItem: boolean;
+  hasPreviousItem: boolean;
   item: PortalContent;
   onAddComment: () => void;
   onApprove: () => void;
+  onNextItem: () => void;
+  onPreviousItem: () => void;
   onResolveComment: (commentId: string) => void;
 }) {
   const talent = talentFromTags(item.tags);
@@ -3013,7 +3217,13 @@ function ReviewPanel({
         )}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-3 grid grid-cols-[44px_minmax(0,1fr)_minmax(0,1fr)_44px] gap-2">
+        <IconButton
+          disabled={!hasPreviousItem}
+          label="Previous content"
+          icon={ChevronLeft}
+          onClick={onPreviousItem}
+        />
         <button
           className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-300 disabled:opacity-50"
           disabled={!canComment}
@@ -3032,6 +3242,12 @@ function ReviewPanel({
           <Check aria-hidden className="size-4" />
           Approve
         </button>
+        <IconButton
+          disabled={!hasNextItem}
+          label="Next content"
+          icon={ChevronRight}
+          onClick={onNextItem}
+        />
       </div>
     </div>
   );
@@ -3217,11 +3433,13 @@ function UploadModal({
   folders,
   onClose,
   onSubmit,
+  progress,
 }: {
   defaultFolder: string;
   folders: PortalFolder[];
   onClose: () => void;
   onSubmit: (draft: UploadDraft) => void;
+  progress: UploadProgress | null;
 }) {
   const [draft, setDraft] = useState<UploadDraft>({
     ...defaultUploadDraft,
@@ -3300,9 +3518,28 @@ function UploadModal({
             type="file"
           />
         </label>
+        {progress ? (
+          <div className="rounded-md border border-blue-100 bg-blue-50 p-3" role="status">
+            <div className="flex items-center justify-between gap-3 text-xs font-semibold text-blue-900">
+              <span>{progress.label}</span>
+              <span>{progress.value}%</span>
+            </div>
+            <div
+              aria-label="Upload progress"
+              aria-valuemax={100}
+              aria-valuemin={0}
+              aria-valuenow={progress.value}
+              className="mt-2 h-2 overflow-hidden rounded-full bg-white"
+              role="progressbar"
+            >
+              <div className="h-full rounded-full bg-blue-600 transition-[width] duration-300" style={{ width: `${progress.value}%` }} />
+            </div>
+          </div>
+        ) : null}
         <div className="mt-2 grid grid-cols-2 gap-2">
           <button
             className="inline-flex h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold"
+            disabled={Boolean(progress)}
             onClick={onClose}
             type="button"
           >
@@ -3310,6 +3547,7 @@ function UploadModal({
           </button>
           <button
             className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white"
+            disabled={Boolean(progress)}
             type="submit"
           >
             <Upload aria-hidden className="size-4" />

@@ -7,5 +7,5 @@ export default async function CampaignPage({
 }) {
   const { id } = await params;
 
-    return <PortalClient initialCampaignId={id} initialView="Campaigns" />;
+  return <PortalClient initialCampaignId={id} initialStage="campaign" initialView="Campaigns" />;
 }
