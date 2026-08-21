@@ -248,7 +248,7 @@ const defaultUploadDraft: UploadDraft = {
 
 export default function PortalClient({ initialCampaignId }: { initialCampaignId?: string } = {}) {
   const router = useRouter();
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<Session | null>(() => readDemoSession());
   const [campaignList, setCampaignList] = useState<PortalCampaign[]>(campaignSeed);
   const [folderList, setFolderList] = useState<PortalFolder[]>(folderSeed);
   const [contentList, setContentList] = useState<PortalContent[]>(contentSeed);
@@ -272,16 +272,6 @@ export default function PortalClient({ initialCampaignId }: { initialCampaignId?
 
   useEffect(() => {
     if (!isSupabaseBrowserConfigured()) {
-      const storedSession = window.sessionStorage.getItem("approveLyDemoSession");
-
-      if (storedSession) {
-        try {
-          setSession(JSON.parse(storedSession) as Session);
-        } catch {
-          window.sessionStorage.removeItem("approveLyDemoSession");
-        }
-      }
-
       return;
     }
 
@@ -3053,6 +3043,25 @@ function ToastStack({ toasts }: { toasts: Toast[] }) {
       ))}
     </div>
   );
+}
+
+function readDemoSession(): Session | null {
+  if (typeof window === "undefined" || isSupabaseBrowserConfigured()) {
+    return null;
+  }
+
+  const storedSession = window.sessionStorage.getItem("approveLyDemoSession");
+
+  if (!storedSession) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(storedSession) as Session;
+  } catch {
+    window.sessionStorage.removeItem("approveLyDemoSession");
+    return null;
+  }
 }
 
 async function apiRequest<T>(
