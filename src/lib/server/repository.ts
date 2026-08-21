@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { getAppBaseUrl, isR2Configured } from "./env";
+import { getAppBaseUrl, isStorageConfigured } from "./env";
 import { ApiError } from "./http";
 import { assertCanApprove, assertCanArchive, assertCanComment, assertCanCreate } from "./permissions";
-import { createDownloadUrl, deleteStoredObject } from "./r2";
+import { createDownloadUrl, deleteStoredObject } from "./storage";
 import { getSupabaseAdmin } from "./supabase";
 import type {
   BootstrapPayload,
@@ -473,7 +473,7 @@ export async function downloadContent(profile: Profile, contentId: string, final
     nextItem = await scheduleArchive(contentId);
   }
 
-  if (content.storage_key && isR2Configured()) {
+  if (content.storage_key && isStorageConfigured()) {
     return {
       downloadUrl: await createDownloadUrl(content.storage_key, content.file_name ?? content.title),
       item: nextItem,
@@ -519,8 +519,8 @@ async function scheduleArchive(contentId: string) {
 }
 
 export async function cleanupArchivedContent() {
-  if (!isR2Configured()) {
-    throw new ApiError("Cloudflare R2 is not configured.", 503);
+  if (!isStorageConfigured()) {
+    throw new ApiError("Supabase Storage is not configured.", 503);
   }
 
   const supabase = getSupabaseAdmin();

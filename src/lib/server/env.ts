@@ -1,4 +1,4 @@
-export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 export function getSupabaseUrl() {
   return process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -24,13 +24,12 @@ export function isSupabaseBackendConfigured() {
   return Boolean(getSupabaseUrl() && getSupabaseServiceRoleKey());
 }
 
-export function isR2Configured() {
-  return Boolean(
-    process.env.CLOUDFLARE_ACCOUNT_ID &&
-      process.env.CLOUDFLARE_R2_ACCESS_KEY_ID &&
-      process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY &&
-      process.env.CLOUDFLARE_R2_BUCKET,
-  );
+export function getSupabaseStorageBucket() {
+  return process.env.SUPABASE_STORAGE_BUCKET ?? "approve-ly-content";
+}
+
+export function isStorageConfigured() {
+  return Boolean(getSupabaseUrl() && getSupabaseServiceRoleKey() && getSupabaseStorageBucket());
 }
 
 export function getAppBaseUrl() {

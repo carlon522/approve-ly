@@ -2,7 +2,7 @@
 
 Approve.ly is a mobile-first social media content approval portal for multiple companies. It supports Creative, Approver, Assistant, and Super Admin workflows across Instagram, TikTok, and YouTube Shorts review previews.
 
-The current repo contains the Next.js app, product contract docs, Supabase-backed API routes, and Cloudflare R2 signed upload/download wiring. Without environment variables it still opens in demo mode; with credentials it runs as a live approval portal.
+The current repo contains the Next.js app, product contract docs, Supabase-backed API routes, and Supabase Storage signed upload/download wiring. Without environment variables it still opens in demo mode; with credentials it runs as a live approval portal.
 
 ## Getting Started
 
@@ -19,19 +19,15 @@ Open [http://localhost:3000](http://localhost:3000) with your browser.
 1. Create a Supabase project.
 2. Run [supabase/schema.sql](supabase/schema.sql), then optionally [supabase/seed.sql](supabase/seed.sql).
 3. Add the Supabase URL, anon/publishable key, and service role key to Render.
-4. Create a Cloudflare R2 bucket and S3 API token, then add the R2 env vars to Render.
-5. Configure R2 CORS to allow `PUT` from your Render domain with the `Content-Type` header.
-6. Add the same random value as `CRON_SECRET` in Render and as the GitHub Actions secret `APPROVE_LY_CRON_SECRET`. The scheduled workflow removes R2 objects seven days after a final download archive is requested.
+4. Create a private Supabase Storage bucket named `approve-ly-content` with a 50MB per-file limit.
+5. Add the same random value as `CRON_SECRET` in Render and as the GitHub Actions secret `APPROVE_LY_CRON_SECRET`. The scheduled workflow removes Supabase Storage objects seven days after a final download archive is requested.
 
 Required production env vars:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_R2_ACCESS_KEY_ID`
-- `CLOUDFLARE_R2_SECRET_ACCESS_KEY`
-- `CLOUDFLARE_R2_BUCKET`
+- `SUPABASE_STORAGE_BUCKET`
 - `APP_BASE_URL`
 - `CRON_SECRET`
 
@@ -50,7 +46,7 @@ Required production env vars:
 
 - Next.js, TypeScript, Tailwind.
 - Supabase Auth and Postgres with Row Level Security.
-- Cloudflare R2 for original files.
+- Supabase Storage for original files.
 - Cloudflare Stream for video previews.
 - Inngest for jobs and reminders.
 - Resend for email.
@@ -58,7 +54,7 @@ Required production env vars:
 
 ## Important Constraint
 
-Uploads can be up to 5GB, so large files must go directly to object or video storage with signed/resumable upload flows. Do not send large files through Next.js API route request bodies.
+Uploads are currently limited to 50MB on the Supabase Free plan and go directly to Storage with signed upload flows. Do not send file bodies through Next.js API route request bodies.
 
 ## Scripts
 

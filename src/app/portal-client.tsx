@@ -644,9 +644,12 @@ export default function PortalClient() {
 
     if (draft.file && session?.accessToken) {
       const presign = await callBackend<{
-        headers: Record<string, string>;
+        bucket: string;
+        contentType: string;
+        expiresIn: number;
+        maxBytes: number;
         storageKey: string;
-        uploadUrl: string;
+        uploadToken: string;
       }>("/api/uploads/presign", {
         body: {
           contentType: draft.mimeType || draft.file.type || "application/octet-stream",
@@ -660,14 +663,15 @@ export default function PortalClient() {
         return;
       }
 
-      const uploadResponse = await fetch(presign.uploadUrl, {
-        body: draft.file,
-        headers: presign.headers,
-        method: "PUT",
-      });
+      const { error: uploadError } = await createBrowserSupabaseClient()
+        .storage
+        .from(presign.bucket)
+        .uploadToSignedUrl(presign.storageKey, presign.uploadToken, draft.file, {
+          contentType: draft.mimeType || draft.file.type || "application/octet-stream",
+        });
 
-      if (!uploadResponse.ok) {
-        notify("R2 upload failed before content was saved.", "warning");
+      if (uploadError) {
+        notify("Supabase Storage upload failed before content was saved.", "warning");
         return;
       }
 
@@ -1891,7 +1895,7 @@ function UploadPanel({ onUpload }: { onUpload: () => void }) {
         <div className="mt-4 grid gap-2">
           <Field label="Content type" value="Video, Image, Carousel" icon={FileStack} />
           <Field label="Platforms" value="Instagram, TikTok, YouTube Shorts" icon={Smartphone} />
-          <Field label="Max file" value="5GB per file" icon={Video} />
+          <Field label="Max file" value="50MB per file" icon={Video} />
           <Field label="Tags" value="Paid social, launch, creator" icon={Tag} />
         </div>
       </button>

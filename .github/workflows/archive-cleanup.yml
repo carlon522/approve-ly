@@ -9,7 +9,7 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Remove expired R2 objects
+      - name: Remove expired Supabase Storage objects
         env:
           APP_BASE_URL: ${{ secrets.APPROVE_LY_BASE_URL }}
           CRON_SECRET: ${{ secrets.APPROVE_LY_CRON_SECRET }}

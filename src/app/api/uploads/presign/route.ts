@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { assertString, errorResponse, jsonResponse, readJson } from "@/lib/server/http";
-import { createUploadUrl } from "@/lib/server/r2";
+import { createUploadUrl } from "@/lib/server/storage";
 import { requireProfile } from "@/lib/server/supabase";
 
 export const runtime = "nodejs";
