@@ -43,4 +43,17 @@ Uploads can be up to 5GB, so large files must go directly to object or video sto
 
 - `npm run dev`: local development.
 - `npm run build`: production build and static `dist/` preparation.
+- `npm run start`: serve the exported `out/` build, using `PORT` for Render Web Services.
 - `npm run lint`: lint checks.
+
+## Render Deploy
+
+For a Render Web Service, use:
+
+- Build Command: `npm run build`
+- Start Command: `npm run start`
+
+For a Render Static Site, use:
+
+- Build Command: `npm run build`
+- Publish Directory: `out`
