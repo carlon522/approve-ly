@@ -1,0 +1,93 @@
+# Approve.ly Product Spec
+
+Approve.ly is a polished, mobile-first social media content approval portal for multiple companies. It centralizes uploads, review comments, due dates, approvals, downloads, and cautious archive cleanup for short-form social media content.
+
+## Goals
+
+- Let Creative users create and manage companies, campaigns, folders, users, content, due dates, share links, and archives.
+- Give Approvers a fast campaign-focused approval workspace.
+- Give Assistants a read-only view into relevant content.
+- Keep all company data securely separated.
+- Make the review experience feel close to Instagram, TikTok, and YouTube Shorts publishing contexts.
+- Keep the technical system simple enough for ChatGPT/Codex to maintain most day-to-day workload.
+
+## Roles
+
+- Creative: ultimate access to their own projects and companies.
+- Approver: assigned to campaigns and can approve any assigned content item when comments are resolved.
+- Assistant: view-only access to assigned companies or campaigns, with download access.
+- Super Admin: global owner account for all companies, users, storage, archive state, and audit logs.
+
+## Content Types
+
+- Video
+- Image
+- Carousel
+
+## Platforms
+
+- Instagram
+- TikTok
+- YouTube Shorts
+
+## Approval Rules
+
+- Approval is one-click.
+- Multiple approvers can be assigned to a campaign.
+- Any assigned approver approval marks the content item approved.
+- Approval is blocked while unresolved comments exist.
+- Approved content is locked unless a deliberate new revision is created.
+- New revisions return content to submitted or in-review state.
+
+## Comments
+
+- Video comments can attach to exact timestamp or frame.
+- Image comments can attach to a point or rectangular area.
+- Carousel comments attach to a slide and can also include point or area anchors.
+- Comments support replies, resolved state, author, version, timestamp, and optional attachments.
+- Multiple comments in a short window can be bundled into one email notification.
+
+## Storage
+
+- Whole-app storage target: 10GB for now.
+- Maximum upload size: 5GB per file.
+- Original files should live in object storage.
+- Video previews should use a video service optimized for streaming.
+- Use storage meters, warnings, and archive prompts because two max-size files can fill the app.
+
+## Sharing
+
+- Private share links require login.
+- Public share links are deliberately created, can download, and expire after 7 days.
+- Public links should expose only the selected content item or selected explicit scope.
+- Link creation, views, downloads, expiry, and revocation should be logged.
+
+## Archive
+
+- Approved content shows Final Download.
+- After final download, authorized users can mark content To Archive.
+- Archive Scheduled means files will delete after 7 days.
+- Users can cancel during the 7-day window.
+- Archived metadata remains visible forever with file state clearly marked.
+- Comments, approvals, versions, and activity logs remain.
+
+## Notifications
+
+- New upload submitted: notify assigned approvers.
+- Approval: notify creatives.
+- Changes requested: notify creatives.
+- Comment bundles: group rapid comments before emailing.
+- Due date reminders: configurable.
+- Archive scheduled: notify relevant creatives.
+- Archive deletion warning: 24 hours before deletion.
+
+## Recommended Technical Stack
+
+- Next.js, TypeScript, Tailwind, shadcn-style components.
+- Supabase Auth and Postgres with Row Level Security.
+- Cloudflare R2 for original files.
+- Cloudflare Stream for video previews.
+- Inngest for durable background jobs.
+- Resend for transactional email.
+- Playwright for responsive UI checks.
+- Vitest for business logic.

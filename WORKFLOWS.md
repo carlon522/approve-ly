@@ -1,0 +1,79 @@
+# Workflows
+
+## Creative Upload
+
+1. Creative selects company, campaign, and folder.
+2. Creative chooses video, image, or carousel.
+3. Creative enters title, platform, caption, hashtags, tags, and due date.
+4. App requests a signed direct upload.
+5. Browser uploads original file to storage or video provider.
+6. App records the uploaded file and creates version 1.
+7. Status becomes submitted.
+8. Assigned approvers receive a notification.
+9. Activity log records upload and submission.
+
+## Commenting
+
+1. Reviewer opens content detail.
+2. Reviewer selects a timestamp, image point/area, or carousel slide anchor.
+3. Reviewer writes a comment.
+4. Status becomes changes_requested if the author is an approver.
+5. Rapid comments are bundled into a single email notification window.
+6. Creative replies, updates, or uploads a new version.
+7. Comments are resolved when the requested issue is handled.
+
+## Approval
+
+1. Approver opens assigned content.
+2. App checks campaign membership and can_approve.
+3. App checks unresolved comment count for the current version.
+4. If unresolved comments exist, approval is disabled.
+5. If clear, approver clicks Approve.
+6. Content status becomes approved.
+7. Current version locks.
+8. Creatives are notified immediately.
+9. Activity log records approval.
+
+## Revision
+
+1. Creative chooses Create Revision on approved or changes requested content.
+2. App creates the next content version.
+3. New files upload through the same direct upload flow.
+4. Status becomes submitted.
+5. Approval and comment history remain visible by version.
+
+## Share Link
+
+1. Creative or Approver creates a private or public link.
+2. Private link requires login.
+3. Public link can download and expires after 7 days.
+4. Link events are logged for views and downloads.
+5. Expired or revoked links show a clear unavailable state.
+
+## Archive
+
+1. Approved content shows Final Download.
+2. Creative downloads final assets.
+3. Creative marks content To Archive.
+4. Status becomes archive_scheduled.
+5. Files are scheduled for deletion in 7 days.
+6. App sends archive scheduled notification.
+7. App sends warning 24 hours before deletion.
+8. If not cancelled, files are deleted.
+9. Status becomes archived and metadata remains visible.
+
+## Due Date Reminders
+
+Use the most specific reminder policy available:
+
+1. Content-level override.
+2. Campaign policy.
+3. Company policy.
+4. Global default.
+
+Recommended default reminders:
+
+- 3 days before due date.
+- 1 day before due date.
+- Morning of due date.
+- Every 24 hours while overdue.
