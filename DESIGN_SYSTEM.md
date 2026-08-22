@@ -39,6 +39,7 @@ Approve.ly is an operational SaaS tool, not a marketing site. The interface shou
 - Review toolbar: approve, comment, download, share, version compare, archive.
 - Comment list: unresolved first, anchor metadata visible, threaded replies.
 - Platform preview: phone-like preview with safe areas, caption, avatar, username, icons, and platform chrome.
+- Deadline heat map: Monday-first month grid with progressively stronger red for open approvals nearing or passing due date, green for completed approvals, and keyboard/focus tooltips.
 
 ## Responsive Rules
 
@@ -48,6 +49,7 @@ Approve.ly is an operational SaaS tool, not a marketing site. The interface shou
 - Use motion-safe active-tab transitions and respect `prefers-reduced-motion`.
 - Bottom sticky action bar on content approval.
 - Dashboard stats should stack into two columns on small screens and four columns on desktop.
+- Dashboard deadline heat map should keep a stable seven-column grid, stack its summary beside or below the calendar, and expose the same due details on focus for touch and keyboard users.
 - Campaign content list should support compact cards on mobile and table-like density on desktop.
 - Approval page should be one column on mobile and preview plus side panel on desktop.
 

@@ -82,6 +82,13 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - Archive scheduled: notify relevant creatives.
 - Archive deletion warning: 24 hours before deletion.
 
+## Dashboard Deadlines
+
+- The dashboard shows open approval due dates in a month heat map.
+- Due dates become progressively red as they approach, with late items using the strongest red.
+- Hovering or focusing a marked day reveals the expiring content and due label; selecting it opens the approval page.
+- Late, running-close, and on-time summaries count open approvals only. Approved and archive-scheduled content remains visible as completed green markers.
+
 ## Recommended Technical Stack
 
 - Next.js, TypeScript, Tailwind, shadcn-style components.

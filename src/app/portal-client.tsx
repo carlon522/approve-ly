@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Archive,
   Building2,
+  CalendarDays,
   Check,
   CheckCircle2,
   ChevronLeft,
@@ -1963,6 +1964,7 @@ export default function PortalClient({
                     onShowAllContent={showAllTalentContent}
                     role={session.role}
                   />
+                  <DashboardDueHeatmap contentItems={accessibleContent} onOpenContent={openContent} />
                   <DashboardHome
                     activeView="Dashboard"
                     campaigns={visibleCampaigns}
@@ -3822,6 +3824,270 @@ function DashboardStatusOverview({
   );
 }
 
+type DueUrgency = "late" | "close" | "on-time" | "complete";
+
+type DatedDueItem = {
+  date: Date;
+  daysUntil: number;
+  item: PortalContent;
+  urgency: DueUrgency;
+};
+
+function DashboardDueHeatmap({
+  contentItems,
+  onOpenContent,
+}: {
+  contentItems: PortalContent[];
+  onOpenContent: (item: PortalContent) => void;
+}) {
+  const today = useMemo(() => new Date(), []);
+  const [monthCursor, setMonthCursor] = useState(
+    () => new Date(today.getFullYear(), today.getMonth(), 1),
+  );
+  const datedItems = useMemo<DatedDueItem[]>(
+    () =>
+      contentItems.flatMap((item) => {
+        const date = parseDueDate(item.due, today);
+
+        if (!date) {
+          return [];
+        }
+
+        const daysUntil = calendarDayDifference(today, date);
+        const complete = ["Approved", "Archive Scheduled"].includes(item.status);
+        const urgency: DueUrgency = complete
+          ? "complete"
+          : daysUntil < 0
+            ? "late"
+            : daysUntil <= 3
+              ? "close"
+              : "on-time";
+
+        return [{ date, daysUntil, item, urgency }];
+      }),
+    [contentItems, today],
+  );
+  const openItems = datedItems.filter((entry) => entry.urgency !== "complete");
+  const summaryCounts = {
+    close: openItems.filter((entry) => entry.urgency === "close").length,
+    late: openItems.filter((entry) => entry.urgency === "late").length,
+    onTime: openItems.filter((entry) => entry.urgency === "on-time").length,
+  };
+  const monthDays = useMemo(() => calendarMonthDays(monthCursor), [monthCursor]);
+  const itemsByDate = useMemo(() => {
+    const grouped = new Map<string, DatedDueItem[]>();
+
+    datedItems.forEach((entry) => {
+      const key = calendarDateKey(entry.date);
+      const entries = grouped.get(key) ?? [];
+      entries.push(entry);
+      grouped.set(key, entries);
+    });
+
+    grouped.forEach((entries) => {
+      entries.sort((left, right) => left.daysUntil - right.daysUntil);
+    });
+
+    return grouped;
+  }, [datedItems]);
+  const monthLabel = monthCursor.toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+  const openTotal = openItems.length;
+  const summaryTotal = Math.max(1, openTotal);
+  const summaryCards: Array<{
+    count: number;
+    hint: string;
+    icon: LucideIcon;
+    label: string;
+    tone: string;
+  }> = [
+    {
+      count: summaryCounts.late,
+      hint: "Past the approval due date",
+      icon: CircleAlert,
+      label: "Late content",
+      tone: "border-red-200 bg-red-50 text-red-800",
+    },
+    {
+      count: summaryCounts.close,
+      hint: "Due within the next 3 days",
+      icon: Clock3,
+      label: "Running close",
+      tone: "border-amber-200 bg-amber-50 text-amber-800",
+    },
+    {
+      count: summaryCounts.onTime,
+      hint: "More than 3 days remaining",
+      icon: CheckCircle2,
+      label: "On time",
+      tone: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    },
+  ];
+
+  const moveMonth = (offset: number) => {
+    setMonthCursor((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  };
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
+      <Panel
+        title="Deadline heat map"
+        action={
+          <div className="flex items-center gap-1">
+            <IconButton label="Previous month" icon={ChevronLeft} onClick={() => moveMonth(-1)} />
+            <IconButton label="Next month" icon={ChevronRight} onClick={() => moveMonth(1)} />
+          </div>
+        }
+      >
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="grid size-10 place-items-center rounded-md bg-red-50 text-red-700">
+              <CalendarDays aria-hidden className="size-5" />
+            </span>
+            <div>
+              <p className="text-lg font-semibold text-zinc-950">{monthLabel}</p>
+              <p className="text-xs text-zinc-500">
+                {openTotal} open approval{openTotal === 1 ? "" : "s"} with due dates
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] font-semibold text-zinc-500">
+            <span className="size-3 rounded-sm bg-red-100" />
+            More time
+            <span className="size-3 rounded-sm bg-red-600" />
+            Due soon
+          </div>
+        </div>
+
+        <div className="mt-5 overflow-visible rounded-md border border-zinc-200 bg-zinc-50 p-2 sm:p-3">
+          <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-zinc-400 sm:gap-2">
+            {calendarWeekdays.map((weekday) => (
+              <span key={weekday}>{weekday}</span>
+            ))}
+          </div>
+          <div className="mt-2 grid grid-cols-7 gap-1 sm:gap-2">
+            {monthDays.map((date) => {
+              const entries = itemsByDate.get(calendarDateKey(date)) ?? [];
+              const backgroundColor = dueCellBackground(entries);
+              const isCurrentMonth = date.getMonth() === monthCursor.getMonth();
+              const label = entries.length
+                ? `${formatCalendarDate(date)}: ${entries
+                    .map((entry) => `${entry.item.title}, ${entry.item.status}, due ${entry.item.due}`)
+                    .join("; ")}`
+                : formatCalendarDate(date);
+
+              return (
+                <button
+                  aria-label={label}
+                  className={`group relative flex min-h-14 min-w-0 flex-col items-start justify-between rounded-md border p-1.5 text-left transition focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 sm:min-h-16 sm:p-2 ${
+                    entries.length
+                      ? "border-transparent hover:-translate-y-0.5 hover:shadow-sm"
+                      : "border-transparent"
+                  } ${isCurrentMonth ? "" : "opacity-45"}`}
+                  disabled={!entries.length}
+                  key={calendarDateKey(date)}
+                  onClick={() => {
+                    if (entries[0]) {
+                      onOpenContent(entries[0].item);
+                    }
+                  }}
+                  style={{ backgroundColor: backgroundColor ?? "#f4f4f5" }}
+                  type="button"
+                >
+                  <span className={`text-xs font-semibold ${dueCellTextClass(entries)}`}>
+                    {date.getDate()}
+                  </span>
+                  {entries.length ? (
+                    <span className={`self-end text-[10px] font-bold ${dueCellTextClass(entries)}`}>
+                      {entries.length}
+                    </span>
+                  ) : null}
+                  {entries.length ? (
+                    <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-56 -translate-x-1/2 rounded-md bg-zinc-950 p-3 text-left text-white shadow-lg group-hover:block group-focus-visible:block">
+                      <span className="block text-[11px] font-semibold text-zinc-300">
+                        {formatCalendarDate(date)}
+                      </span>
+                      <span className="mt-2 grid gap-2">
+                        {entries.slice(0, 3).map((entry) => (
+                          <span className="block min-w-0" key={entry.item.id}>
+                            <span className="block truncate text-xs font-semibold">{entry.item.title}</span>
+                            <span className="block text-[11px] text-zinc-400">
+                              {entry.item.due} · {entry.item.status}
+                            </span>
+                          </span>
+                        ))}
+                        {entries.length > 3 ? (
+                          <span className="text-[11px] text-zinc-400">+{entries.length - 3} more</span>
+                        ) : null}
+                      </span>
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-zinc-500">
+          Click a date to open its most urgent approval. Hover or focus a marked date for the expiring content.
+        </p>
+      </Panel>
+
+      <Panel
+        title="Approval deadlines"
+        action={
+          <span className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-xs font-semibold text-zinc-600">
+            {openTotal} open
+          </span>
+        }
+      >
+        <div className="grid gap-2">
+          {summaryCards.map((card) => {
+            const Icon = card.icon;
+
+            return (
+              <article className={`flex items-center gap-3 rounded-md border p-3 ${card.tone}`} key={card.label}>
+                <span className="grid size-9 shrink-0 place-items-center rounded-md bg-white/70">
+                  <Icon aria-hidden className="size-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{card.label}</p>
+                  <p className="truncate text-xs opacity-75">{card.hint}</p>
+                </div>
+                <span className="ml-auto text-2xl font-semibold">{card.count}</span>
+              </article>
+            );
+          })}
+        </div>
+
+        <div className="mt-5">
+          <div className="flex h-3 overflow-hidden rounded-full bg-zinc-100" title="Open approval deadline mix">
+            <span className="bg-red-600" style={{ width: `${(summaryCounts.late / summaryTotal) * 100}%` }} />
+            <span className="bg-amber-400" style={{ width: `${(summaryCounts.close / summaryTotal) * 100}%` }} />
+            <span className="bg-emerald-500" style={{ width: `${(summaryCounts.onTime / summaryTotal) * 100}%` }} />
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-zinc-500">
+            <span>Open approval workload</span>
+            <span>{openTotal ? `${Math.round((summaryCounts.onTime / openTotal) * 100)}% on time` : "All clear"}</span>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+          <div className="flex items-start gap-3">
+            <span className="grid size-8 shrink-0 place-items-center rounded-md bg-white text-zinc-700">
+              <CircleAlert aria-hidden className="size-4" />
+            </span>
+            <p className="text-xs leading-5 text-zinc-600">
+              Red cells are open approvals. Completed approvals stay visible in green so your calendar keeps the full story without inflating the risk count.
+            </p>
+          </div>
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
 function ContentCard({
   active,
   item,
@@ -5226,6 +5492,154 @@ function formatBytes(bytes: number) {
   }
 
   return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+}
+
+const calendarWeekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function parseDueDate(label: string, now: Date) {
+  const value = label.trim();
+
+  if (!value || /no due date/i.test(value)) {
+    return null;
+  }
+
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2}))?/);
+
+  if (isoMatch) {
+    return new Date(
+      Number(isoMatch[1]),
+      Number(isoMatch[2]) - 1,
+      Number(isoMatch[3]),
+      isoMatch[4] ? Number(isoMatch[4]) : 23,
+      isoMatch[5] ? Number(isoMatch[5]) : 59,
+    );
+  }
+
+  const relativeMatch = value.match(/^(today|tomorrow)(?:,\s*(\d{1,2}):?(\d{2})?)?$/i);
+
+  if (relativeMatch) {
+    return new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + (relativeMatch[1].toLowerCase() === "tomorrow" ? 1 : 0),
+      relativeMatch[2] ? Number(relativeMatch[2]) : 23,
+      relativeMatch[3] ? Number(relativeMatch[3]) : 59,
+    );
+  }
+
+  const yearMatch = value.match(/[,\s](\d{4})$/);
+  const year = yearMatch ? Number(yearMatch[1]) : now.getFullYear();
+  const withoutYear = yearMatch ? value.slice(0, yearMatch.index).replace(/,\s*$/, "") : value;
+  const monthMatch = withoutYear.match(
+    /^([A-Za-z]+)\s+(\d{1,2})(?:,\s*(\d{1,2})(?::(\d{2}))?)?$/,
+  );
+
+  if (monthMatch) {
+    const month = [
+      "january",
+      "february",
+      "march",
+      "april",
+      "may",
+      "june",
+      "july",
+      "august",
+      "september",
+      "october",
+      "november",
+      "december",
+    ].findIndex((name) => name.startsWith(monthMatch[1].toLowerCase()));
+
+    if (month >= 0) {
+      return new Date(
+        year,
+        month,
+        Number(monthMatch[2]),
+        monthMatch[3] ? Number(monthMatch[3]) : 23,
+        monthMatch[4] ? Number(monthMatch[4]) : 59,
+      );
+    }
+  }
+
+  return null;
+}
+
+function calendarDayDifference(from: Date, to: Date) {
+  const fromDay = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+  const toDay = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime();
+  return Math.round((toDay - fromDay) / 86_400_000);
+}
+
+function calendarDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+function calendarMonthDays(month: Date) {
+  const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
+  const mondayOffset = (firstDay.getDay() + 6) % 7;
+
+  return Array.from(
+    { length: 42 },
+    (_, index) => new Date(month.getFullYear(), month.getMonth(), index - mondayOffset + 1),
+  );
+}
+
+function formatCalendarDate(date: Date) {
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    weekday: "short",
+  });
+}
+
+function dueCellBackground(entries: DatedDueItem[]) {
+  if (!entries.length) {
+    return undefined;
+  }
+
+  const openEntries = entries.filter((entry) => entry.urgency !== "complete");
+
+  if (!openEntries.length) {
+    return "#dcfce7";
+  }
+
+  const soonestDays = Math.min(...openEntries.map((entry) => entry.daysUntil));
+
+  if (soonestDays < 0) {
+    return "#b91c1c";
+  }
+
+  if (soonestDays === 0) {
+    return "#dc2626";
+  }
+
+  if (soonestDays === 1) {
+    return "#ef4444";
+  }
+
+  if (soonestDays <= 3) {
+    return "#fca5a5";
+  }
+
+  return "#fee2e2";
+}
+
+function dueCellTextClass(entries: DatedDueItem[]) {
+  if (!entries.length) {
+    return "text-zinc-500";
+  }
+
+  const openEntries = entries.filter((entry) => entry.urgency !== "complete");
+
+  if (!openEntries.length) {
+    return "text-emerald-800";
+  }
+
+  return Math.min(...openEntries.map((entry) => entry.daysUntil)) <= 0
+    ? "text-white"
+    : "text-red-950";
 }
 
 function formatDateOffset(days: number) {

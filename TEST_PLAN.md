@@ -27,6 +27,8 @@
 ## UI Tests
 
 - Login has no role dropdown; first login presents an accessible role choice page with a disabled saving state.
+- Dashboard deadline heat map renders late, close, on-time, and completed states with the correct red/green intensity; hover and focus reveal the content due details.
+- Dashboard heat map month controls remain usable at mobile width and clicking a marked day opens its most urgent content.
 - Dashboard renders at mobile, tablet, and desktop sizes.
 - Mobile app shell keeps the bottom navigation fixed, clears page content, and preserves sign-out/reset actions in the sticky header.
 - Mobile navigation maps to the correct role-specific destinations and uses full accessible names for shortened labels.
