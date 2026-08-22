@@ -1607,7 +1607,7 @@ export default function PortalClient({
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f7f4] text-zinc-950">
+    <main className="min-h-screen scroll-pb-28 bg-[#f7f7f4] pb-28 text-zinc-950 lg:pb-0">
       <div
         aria-busy={workspaceLoading}
         className={`mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-3 py-3 transition-[filter,opacity] sm:px-5 lg:flex-row lg:p-5 ${
@@ -3093,7 +3093,42 @@ function Sidebar({
           ];
 
   return (
-    <aside className="flex shrink-0 flex-col gap-3 rounded-lg border border-[#dedbd2] bg-white p-3 shadow-sm lg:sticky lg:top-5 lg:h-[calc(100vh-40px)] lg:w-64">
+    <>
+      <div className="sticky top-0 z-30 flex items-center justify-between gap-3 rounded-[1.1rem] border border-zinc-200/90 bg-white/90 p-3 shadow-sm backdrop-blur-xl lg:hidden">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="grid size-9 shrink-0 place-items-center rounded-[0.8rem] bg-zinc-950 text-xs font-semibold text-white">
+            A
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">Approve.ly</p>
+            <p className="truncate text-xs text-zinc-500">{role} workspace</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          {demoMode ? (
+            <button
+              aria-label="Reset demo"
+              className="grid size-10 place-items-center rounded-[0.8rem] text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 active:scale-95"
+              onClick={onReset}
+              title="Reset demo"
+              type="button"
+            >
+              <Database aria-hidden className="size-4" />
+            </button>
+          ) : null}
+          <button
+            aria-label="Sign out"
+            className="grid size-10 place-items-center rounded-[0.8rem] text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-950 active:scale-95"
+            onClick={onLogout}
+            title="Sign out"
+            type="button"
+          >
+            <LogOut aria-hidden className="size-4" />
+          </button>
+        </div>
+      </div>
+
+      <aside className="hidden shrink-0 flex-col gap-3 rounded-lg border border-[#dedbd2] bg-white p-3 shadow-sm lg:sticky lg:top-5 lg:flex lg:h-[calc(100vh-40px)] lg:w-64">
       <div className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 p-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid size-10 shrink-0 place-items-center rounded-md bg-zinc-950 text-sm font-semibold text-white">
@@ -3107,7 +3142,7 @@ function Sidebar({
         <ChevronDown aria-hidden className="size-4 shrink-0 text-zinc-500" />
       </div>
 
-      <nav className={`grid gap-1 lg:grid-cols-1 ${navItems.length < 5 ? "grid-cols-2" : "grid-cols-5"}`} aria-label="Primary">
+      <nav className="grid gap-1" aria-label="Primary">
         {navItems.map((item) => (
           <button
             aria-label={item.label}
@@ -3158,8 +3193,58 @@ function Sidebar({
           <span className="hidden lg:inline">Sign out</span>
         </button>
       </div>
-    </aside>
+      </aside>
+
+      <nav
+        aria-label="Mobile primary"
+        className="fixed inset-x-0 bottom-0 z-40 px-3 pt-2 lg:hidden"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
+        <div className="mx-auto flex max-w-xl items-center gap-1 rounded-[1.35rem] border border-zinc-200/90 bg-white/90 p-1.5 shadow-[0_-12px_34px_rgba(24,24,27,0.12)] backdrop-blur-xl">
+          {navItems.map((item) => {
+            const active = activeView === item.label;
+
+            return (
+              <button
+                aria-current={active ? "page" : undefined}
+                aria-label={item.label}
+                className={`mobile-nav-item group relative flex min-h-[3.65rem] min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-[1rem] px-1 text-[0.68rem] font-semibold transition-[background-color,color,box-shadow,transform] duration-300 active:scale-95 ${
+                  active
+                    ? "mobile-nav-active bg-zinc-950 text-white shadow-[0_7px_18px_rgba(24,24,27,0.22)]"
+                    : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950"
+                }`}
+                key={item.label}
+                onClick={() => onChangeView(item.label)}
+                type="button"
+              >
+                <item.icon
+                  aria-hidden
+                  className={`size-5 transition-transform duration-300 ${active ? "scale-110" : "group-hover:-translate-y-0.5"}`}
+                />
+                <span className="max-w-full truncate leading-none">{mobileNavLabel(item.label)}</span>
+                {active ? <span aria-hidden className="absolute -bottom-0.5 size-1 rounded-full bg-emerald-400" /> : null}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+    </>
   );
+}
+
+function mobileNavLabel(label: View) {
+  switch (label) {
+    case "Comments received":
+      return "Notes";
+    case "Content to approve":
+      return "Review";
+    case "Campaigns":
+      return "Work";
+    case "Dashboard":
+      return "Home";
+    default:
+      return label;
+  }
 }
 
 function SelectField({
