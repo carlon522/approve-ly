@@ -13,6 +13,7 @@
 - Storage usage calculations.
 - Structured due date normalization preserves the selected date/time and uses legacy labels only as a fallback.
 - Content stats invariants: status buckets include all content types, bucket totals equal visible content totals, and completion percentage equals approved plus archive-scheduled content divided by total.
+- Dashboard Pending approval and Workflow pulse Pending approval use the same pending-decision content count; Open comments uses the same content-item count as Workflow pulse and separately explains the underlying comment-record count.
 
 ## Integration Tests
 

@@ -957,14 +957,14 @@ export default function PortalClient({
         icon: Clock3,
         label: "Pending approval",
         tone: "blue" as const,
-        value: String(contentStats.awaitingApproval),
+        value: String(contentStats.pendingApproval),
       },
       {
-        detail: `${commentList.length} comments total`,
+        detail: `${openComments} active comment${openComments === 1 ? "" : "s"} across ${contentStats.openCommentItems} content item${contentStats.openCommentItems === 1 ? "" : "s"}`,
         icon: MessageCircle,
         label: "Open comments",
         tone: "amber" as const,
-        value: String(openComments),
+        value: String(contentStats.openCommentItems),
       },
       {
         detail: "Ready for final download",
@@ -4271,16 +4271,8 @@ function DashboardStatusOverview({
     },
   ];
   const total = contentItems.length;
-  const groupCounts = [
-    contentItems.filter(
-      (item) =>
-        ["Submitted", "In Review"].includes(item.status) && item.unresolved === 0,
-    ).length,
-    contentItems.filter(
-      (item) => item.unresolved > 0 || item.status === "Changes Requested",
-    ).length,
-    contentItems.filter((item) => ["Approved", "Archive Scheduled"].includes(item.status)).length,
-  ];
+  const contentStats = getContentStats(contentItems);
+  const groupCounts = [contentStats.pendingApproval, contentStats.openCommentItems, contentStats.approved];
   const completeCount = groupCounts[2];
   const completionRate = total ? Math.round((completeCount / total) * 100) : 0;
   const talentCounts = Array.from(

@@ -1,6 +1,6 @@
 import type { ContentItem, Status } from "./portal-data";
 
-export type ContentStatsInput = Pick<ContentItem, "status" | "type">;
+export type ContentStatsInput = Pick<ContentItem, "status" | "type" | "unresolved">;
 
 export type ContentStats = {
   approved: number;
@@ -10,6 +10,8 @@ export type ContentStats = {
   completionRate: number;
   inReview: number;
   images: number;
+  openCommentItems: number;
+  pendingApproval: number;
   submitted: number;
   total: number;
   videos: number;
@@ -28,12 +30,22 @@ export function getContentStats(items: ReadonlyArray<ContentStatsInput>): Conten
   let videos = 0;
   let images = 0;
   let carousels = 0;
+  let openCommentItems = 0;
+  let pendingApproval = 0;
 
   for (const item of items) {
     counts[item.status] += 1;
     videos += item.type === "Video" ? 1 : 0;
     images += item.type === "Image" ? 1 : 0;
     carousels += item.type === "Carousel" ? 1 : 0;
+
+    const isApproved = item.status === "Approved" || item.status === "Archive Scheduled";
+
+    if (!isApproved && (item.unresolved > 0 || item.status === "Changes Requested")) {
+      openCommentItems += 1;
+    } else if (!isApproved && ["Submitted", "In Review"].includes(item.status)) {
+      pendingApproval += 1;
+    }
   }
 
   const total = items.length;
@@ -48,6 +60,8 @@ export function getContentStats(items: ReadonlyArray<ContentStatsInput>): Conten
     completionRate: total ? Math.round((approved / total) * 100) : 0,
     inReview: counts["In Review"],
     images,
+    openCommentItems,
+    pendingApproval,
     submitted: counts.Submitted,
     total,
     videos,
