@@ -1478,6 +1478,11 @@ export default function PortalClient({
   };
 
   const openProject = (campaign: PortalCampaign) => {
+    if (workspaceLoading) {
+      notify("Workspace is still syncing. Try again in a moment.", "neutral");
+      return;
+    }
+
     setActiveView("Campaigns");
     setSelectedCompany(campaign.company);
     setSelectedCampaign(campaign.name);
@@ -1606,7 +1611,7 @@ export default function PortalClient({
       <div
         aria-busy={workspaceLoading}
         className={`mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-3 py-3 transition-[filter,opacity] sm:px-5 lg:flex-row lg:p-5 ${
-          workspaceLoading ? "blur-[2px] opacity-70" : ""
+          workspaceLoading ? "pointer-events-none blur-[2px] opacity-70" : ""
         }`}
       >
         <Sidebar
