@@ -12,6 +12,13 @@
 8. Assigned approvers receive a notification.
 9. Activity log records upload and submission.
 
+## Workspace Sync
+
+1. Authenticated users receive the last workspace snapshot from the current browser session when it is still fresh.
+2. The portal renders that snapshot immediately and refreshes it in the background.
+3. The server fetches independent workspace slices in parallel and uses the content result to derive folder counts.
+4. The fresh response replaces the cached snapshot and records no demo data in live mode.
+
 ## Commenting
 
 1. Reviewer opens content detail.

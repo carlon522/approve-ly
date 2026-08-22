@@ -32,6 +32,9 @@ create table if not exists public.campaigns (
 create unique index if not exists campaigns_company_name_unique_idx
   on public.campaigns (company_id, lower(name));
 
+create index if not exists campaigns_created_by_idx
+  on public.campaigns (created_by);
+
 create table if not exists public.campaign_members (
   id uuid primary key default gen_random_uuid(),
   campaign_id uuid not null references public.campaigns(id) on delete cascade,
@@ -40,6 +43,9 @@ create table if not exists public.campaign_members (
   created_at timestamptz not null default now(),
   unique (campaign_id, profile_id)
 );
+
+create index if not exists campaign_members_profile_idx
+  on public.campaign_members (profile_id);
 
 create table if not exists public.folders (
   id uuid primary key default gen_random_uuid(),
@@ -80,6 +86,9 @@ create table if not exists public.content_items (
   updated_at timestamptz not null default now()
 );
 
+create index if not exists content_items_campaign_created_idx
+  on public.content_items (campaign_id, created_at desc);
+
 create table if not exists public.content_comments (
   id uuid primary key default gen_random_uuid(),
   content_id text not null references public.content_items(id) on delete cascade,
@@ -92,6 +101,9 @@ create table if not exists public.content_comments (
   updated_at timestamptz not null default now()
 );
 
+create index if not exists content_comments_content_created_idx
+  on public.content_comments (content_id, created_at desc);
+
 create table if not exists public.activity_events (
   id uuid primary key default gen_random_uuid(),
   kind text not null default 'bell' check (kind in ('bell', 'check', 'archive', 'upload', 'comment', 'share')),
@@ -99,6 +111,9 @@ create table if not exists public.activity_events (
   meta text not null default 'Just now',
   created_at timestamptz not null default now()
 );
+
+create index if not exists activity_events_created_idx
+  on public.activity_events (created_at desc);
 
 create table if not exists public.share_links (
   id uuid primary key default gen_random_uuid(),
@@ -108,6 +123,12 @@ create table if not exists public.share_links (
   token text not null unique,
   created_at timestamptz not null default now()
 );
+
+create index if not exists share_links_content_idx
+  on public.share_links (content_id);
+
+create index if not exists share_links_created_by_idx
+  on public.share_links (created_by);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -178,14 +199,14 @@ drop policy if exists "Profiles can read own profile" on public.profiles;
 create policy "Profiles can read own profile"
 on public.profiles for select
 to authenticated
-using (id = auth.uid());
+using (id = (select auth.uid()));
 
 drop policy if exists "Profiles can update own profile" on public.profiles;
 create policy "Profiles can update own profile"
 on public.profiles for update
 to authenticated
-using (id = auth.uid())
-with check (id = auth.uid());
+using (id = (select auth.uid()))
+with check (id = (select auth.uid()));
 
 drop policy if exists "Authenticated users can read workspace companies" on public.companies;
 create policy "Authenticated users can read workspace companies"

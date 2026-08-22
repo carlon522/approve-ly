@@ -41,6 +41,7 @@ import {
 import {
   type FormEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -302,16 +303,17 @@ export default function PortalClient({
   initialView?: View;
 } = {}) {
   const router = useRouter();
+  const liveAuth = isSupabaseBrowserConfigured();
   const [session, setSession] = useState<Session | null>(null);
-  const [campaignList, setCampaignList] = useState<PortalCampaign[]>(campaignSeed);
-  const [folderList, setFolderList] = useState<PortalFolder[]>(folderSeed);
-  const [contentList, setContentList] = useState<PortalContent[]>(contentSeed);
-  const [commentList, setCommentList] = useState<PortalComment[]>(commentSeed);
-  const [activityList, setActivityList] = useState<PortalActivity[]>(activitySeed);
-  const [selectedCompany, setSelectedCompany] = useState(campaignSeed[0].company);
-  const [selectedCampaign, setSelectedCampaign] = useState(campaignSeed[0].name);
+  const [campaignList, setCampaignList] = useState<PortalCampaign[]>(liveAuth ? [] : campaignSeed);
+  const [folderList, setFolderList] = useState<PortalFolder[]>(liveAuth ? [] : folderSeed);
+  const [contentList, setContentList] = useState<PortalContent[]>(liveAuth ? [] : contentSeed);
+  const [commentList, setCommentList] = useState<PortalComment[]>(liveAuth ? [] : commentSeed);
+  const [activityList, setActivityList] = useState<PortalActivity[]>(liveAuth ? [] : activitySeed);
+  const [selectedCompany, setSelectedCompany] = useState(liveAuth ? "" : campaignSeed[0].company);
+  const [selectedCampaign, setSelectedCampaign] = useState(liveAuth ? "" : campaignSeed[0].name);
   const [selectedFolder, setSelectedFolder] = useState("All folders");
-  const [activeItemId, setActiveItemId] = useState(contentSeed[0].id);
+  const [activeItemId, setActiveItemId] = useState(liveAuth ? "" : contentSeed[0].id);
   const [activePlatform, setActivePlatform] = useState<Platform>("Instagram");
   const [activeView, setActiveView] = useState<View>(
     initialView ?? (initialCampaignId ? "Campaigns" : "Dashboard"),
@@ -331,7 +333,8 @@ export default function PortalClient({
     loading: boolean;
     url?: string;
   }>({ itemId: "", loading: false });
-  const [workspaceLoading, setWorkspaceLoading] = useState(isSupabaseBrowserConfigured());
+  const [workspaceLoading, setWorkspaceLoading] = useState(liveAuth);
+  const [workspaceSyncing, setWorkspaceSyncing] = useState(liveAuth);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [demoStateReady, setDemoStateReady] = useState(false);
 
@@ -340,8 +343,44 @@ export default function PortalClient({
   const projectFolderId = initialFolderId ?? null;
   const routeActiveItemId = initialContentId ?? activeItemId;
 
+  const applyWorkspacePayload = useCallback((payload: BootstrapPayload) => {
+    setActivityList(payload.activity);
+    setCampaignList(payload.campaigns);
+    setCommentList(payload.comments);
+    setContentList(syncCommentCounts(payload.contentItems, payload.comments));
+    setFolderList(payload.folders);
+    setSession((current) =>
+      current
+        ? {
+            ...current,
+            email: payload.profile.email,
+            name: payload.profile.name,
+            role: payload.profile.role,
+          }
+        : current,
+    );
+
+    const firstCampaign =
+      payload.campaigns.find((campaign) => campaign.id === initialCampaignId) ??
+      payload.campaigns[0];
+    const firstContent =
+      payload.contentItems.find((item) => item.id === initialContentId) ??
+      payload.contentItems.find((item) => item.campaign === firstCampaign?.name) ??
+      payload.contentItems[0];
+
+    if (firstCampaign) {
+      setSelectedCompany(firstCampaign.company);
+      setSelectedCampaign(firstCampaign.name);
+    }
+
+    if (firstContent) {
+      setActiveItemId(firstContent.id);
+      setActivePlatform(firstContent.platform);
+    }
+  }, [initialCampaignId, initialContentId]);
+
   useEffect(() => {
-    const storedState = isSupabaseBrowserConfigured() ? null : readDemoState();
+    const storedState = liveAuth ? null : readDemoState();
     const timer = window.setTimeout(() => {
       if (storedState) {
         setCampaignList(storedState.campaigns);
@@ -351,7 +390,7 @@ export default function PortalClient({
         setActivityList(storedState.activity);
       }
 
-      if (!isSupabaseBrowserConfigured()) {
+      if (!liveAuth) {
         setSession(readDemoSession());
       }
 
@@ -359,10 +398,10 @@ export default function PortalClient({
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [liveAuth]);
 
   useEffect(() => {
-    if (isSupabaseBrowserConfigured() || !demoStateReady) {
+    if (liveAuth || !demoStateReady) {
       return;
     }
 
@@ -376,10 +415,10 @@ export default function PortalClient({
         folders: folderList,
       } satisfies DemoPortalState),
     );
-  }, [activityList, campaignList, commentList, contentList, demoStateReady, folderList]);
+  }, [activityList, campaignList, commentList, contentList, demoStateReady, folderList, liveAuth]);
 
   useEffect(() => {
-    if (!isSupabaseBrowserConfigured()) {
+    if (!liveAuth) {
       return;
     }
 
@@ -429,7 +468,7 @@ export default function PortalClient({
       cancelled = true;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [liveAuth]);
 
   useEffect(() => {
     if (session) {
@@ -450,6 +489,7 @@ export default function PortalClient({
 
       if (!response.ok) {
         setWorkspaceLoading(false);
+        setWorkspaceSyncing(false);
         return;
       }
 
@@ -484,6 +524,7 @@ export default function PortalClient({
         setActivePlatform(firstContent.platform);
       }
       setWorkspaceLoading(false);
+      setWorkspaceSyncing(false);
     }
 
     void loadPublicShare();
@@ -501,7 +542,18 @@ export default function PortalClient({
     }
 
     const liveAccessToken = accessToken;
+    const workspaceEmail = session.email;
+    const cachedWorkspace = readWorkspaceCache(workspaceEmail);
     let cancelled = false;
+
+    if (cachedWorkspace) {
+      window.queueMicrotask(() => {
+        if (!cancelled) {
+          applyWorkspacePayload(cachedWorkspace);
+          setWorkspaceLoading(false);
+        }
+      });
+    }
 
     async function loadLiveWorkspace() {
       try {
@@ -514,44 +566,15 @@ export default function PortalClient({
           return;
         }
 
-        setActivityList(payload.activity);
-        setCampaignList(payload.campaigns);
-        setCommentList(payload.comments);
-        setContentList(syncCommentCounts(payload.contentItems, payload.comments));
-        setFolderList(payload.folders);
-        setSession((current) =>
-          current
-            ? {
-                ...current,
-                email: payload.profile.email,
-                name: payload.profile.name,
-                role: payload.profile.role,
-              }
-            : current,
-        );
-
-        const firstCampaign =
-          payload.campaigns.find((campaign) => campaign.id === initialCampaignId) ??
-          payload.campaigns[0];
-        const firstContent =
-          payload.contentItems.find((item) => item.id === initialContentId) ??
-          payload.contentItems.find((item) => item.campaign === firstCampaign?.name) ??
-          payload.contentItems[0];
-
-        if (firstCampaign) {
-          setSelectedCompany(firstCampaign.company);
-          setSelectedCampaign(firstCampaign.name);
-        }
-
-        if (firstContent) {
-          setActiveItemId(firstContent.id);
-          setActivePlatform(firstContent.platform);
-        }
+        applyWorkspacePayload(payload);
+        writeWorkspaceCache(workspaceEmail, payload);
         setWorkspaceLoading(false);
+        setWorkspaceSyncing(false);
       } catch {
         if (!cancelled) {
           setSession((current) => current && { ...current, accessToken: undefined });
           setWorkspaceLoading(false);
+          setWorkspaceSyncing(false);
         }
       }
     }
@@ -561,7 +584,7 @@ export default function PortalClient({
     return () => {
       cancelled = true;
     };
-  }, [initialCampaignId, initialContentId, session?.accessToken]);
+  }, [applyWorkspacePayload, initialCampaignId, initialContentId, session?.accessToken, session?.email]);
 
   const notify = (message: string, tone: ToastTone = "success") => {
     const id = Date.now();
@@ -841,12 +864,13 @@ export default function PortalClient({
   };
 
   const handleLogin = (nextSession: Session) => {
-    if (!isSupabaseBrowserConfigured()) {
+    if (!liveAuth) {
       window.sessionStorage.setItem("approveLyDemoSession", JSON.stringify(nextSession));
     }
 
     setSession(nextSession);
     setWorkspaceLoading(Boolean(nextSession.accessToken));
+    setWorkspaceSyncing(Boolean(nextSession.accessToken));
     setActiveView(initialCampaignId ? "Campaigns" : "Dashboard");
     const project = initialCampaignId
       ? campaignList.find((campaign) => campaign.id === initialCampaignId)
@@ -860,13 +884,17 @@ export default function PortalClient({
   };
 
   const handleLogout = () => {
-    if (isSupabaseBrowserConfigured()) {
+    if (liveAuth) {
       void createBrowserSupabaseClient().auth.signOut();
+      if (session?.email) {
+        window.sessionStorage.removeItem(workspaceCacheKey(session.email));
+      }
     }
 
     window.sessionStorage.removeItem("approveLyDemoSession");
     setSession(null);
     setWorkspaceLoading(false);
+    setWorkspaceSyncing(false);
     notify("Signed out", "neutral");
   };
 
@@ -1478,7 +1506,7 @@ export default function PortalClient({
   };
 
   const openProject = (campaign: PortalCampaign) => {
-    if (workspaceLoading) {
+    if (workspaceLoading && !campaignList.length) {
       notify("Workspace is still syncing. Try again in a moment.", "neutral");
       return;
     }
@@ -1609,15 +1637,13 @@ export default function PortalClient({
   return (
     <main className="min-h-screen scroll-pb-28 bg-[#f7f7f4] pb-28 text-zinc-950 lg:pb-0">
       <div
-        aria-busy={workspaceLoading}
-        className={`mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-3 py-3 transition-[filter,opacity] sm:px-5 lg:flex-row lg:p-5 ${
-          workspaceLoading ? "pointer-events-none blur-[2px] opacity-70" : ""
-        }`}
+        aria-busy={workspaceSyncing}
+        className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-3 py-3 sm:px-5 lg:flex-row lg:p-5"
       >
         <Sidebar
           activeView={activeView}
           onChangeView={navigateToView}
-          demoMode={!isSupabaseBrowserConfigured()}
+          demoMode={!liveAuth}
           onLogout={handleLogout}
           onReset={resetDemo}
           role={session.role}
@@ -1902,7 +1928,7 @@ export default function PortalClient({
 
       <ToastStack toasts={toasts} />
 
-      {workspaceLoading ? <WorkspaceSyncToast /> : null}
+      {workspaceSyncing ? <WorkspaceSyncToast /> : null}
       {celebration ? <ConfettiBurst /> : null}
 
       {uploadOpen ? (
@@ -2609,7 +2635,7 @@ function ApprovalHeader({
 
 function WorkspaceSyncToast() {
   return (
-    <div className="fixed bottom-3 right-3 z-50 w-[min(360px,calc(100vw-24px))] rounded-lg border border-blue-200 bg-white/95 p-3 shadow-lg backdrop-blur" role="status">
+    <div className="fixed bottom-24 right-3 z-50 w-[min(360px,calc(100vw-24px))] rounded-lg border border-blue-200 bg-white/95 p-3 shadow-lg backdrop-blur sm:bottom-3" role="status">
       <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
         <Clock3 aria-hidden className="size-4 animate-pulse" />
         Syncing workspace data
@@ -4695,14 +4721,82 @@ function readDemoState(): DemoPortalState | null {
   }
 }
 
+const workspaceCacheTtlMs = 10 * 60 * 1000;
+
+function workspaceCacheKey(email: string) {
+  return `approveLyWorkspaceCache:${email.trim().toLowerCase()}`;
+}
+
+function readWorkspaceCache(email: string): BootstrapPayload | null {
+  if (typeof window === "undefined" || !email) {
+    return null;
+  }
+
+  const storedWorkspace = window.sessionStorage.getItem(workspaceCacheKey(email));
+
+  if (!storedWorkspace) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(storedWorkspace) as {
+      payload?: BootstrapPayload;
+      savedAt?: number;
+    };
+
+    if (
+      !parsed.payload ||
+      !Array.isArray(parsed.payload.activity) ||
+      !Array.isArray(parsed.payload.campaigns) ||
+      !Array.isArray(parsed.payload.comments) ||
+      !Array.isArray(parsed.payload.contentItems) ||
+      !Array.isArray(parsed.payload.folders) ||
+      typeof parsed.savedAt !== "number" ||
+      Date.now() - parsed.savedAt > workspaceCacheTtlMs
+    ) {
+      window.sessionStorage.removeItem(workspaceCacheKey(email));
+      return null;
+    }
+
+    return parsed.payload;
+  } catch {
+    window.sessionStorage.removeItem(workspaceCacheKey(email));
+    return null;
+  }
+}
+
+function writeWorkspaceCache(email: string, payload: BootstrapPayload) {
+  if (typeof window === "undefined" || !email) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      workspaceCacheKey(email),
+      JSON.stringify({ payload, savedAt: Date.now() }),
+    );
+  } catch {
+    // Session storage can be unavailable or full; live sync remains authoritative.
+  }
+}
+
 function syncCommentCounts(items: PortalContent[], comments: PortalComment[]) {
+  const counts = new Map<string, { total: number; unresolved: number }>();
+
+  for (const comment of comments) {
+    const count = counts.get(comment.contentId) ?? { total: 0, unresolved: 0 };
+    count.total += 1;
+    count.unresolved += comment.status === "Open" ? 1 : 0;
+    counts.set(comment.contentId, count);
+  }
+
   return items.map((item) => {
-    const relatedComments = comments.filter((comment) => comment.contentId === item.id);
+    const count = counts.get(item.id) ?? { total: 0, unresolved: 0 };
 
     return {
       ...item,
-      comments: relatedComments.length,
-      unresolved: relatedComments.filter((comment) => comment.status === "Open").length,
+      comments: count.total,
+      unresolved: count.unresolved,
     };
   });
 }

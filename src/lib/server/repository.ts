@@ -80,38 +80,53 @@ type ActivityRow = {
 
 export async function getBootstrap(profile: Profile): Promise<BootstrapPayload> {
   const supabase = getSupabaseAdmin();
-  const { data: companies, error: companyError } = await supabase
-    .from("companies")
-    .select("id,name")
-    .order("name");
+  const membershipQuery =
+    profile.role === "Creative"
+      ? Promise.resolve({ data: [] as Array<{ campaign_id: string }>, error: null })
+      : supabase
+          .from("campaign_members")
+          .select("campaign_id")
+          .eq("profile_id", profile.id);
+  const [companyResult, campaignResult, membershipResult] = await Promise.all([
+    supabase.from("companies").select("id,name").order("name"),
+    supabase
+      .from("campaigns")
+      .select("id,company_id,name,due_label,status,progress")
+      .order("created_at", { ascending: false }),
+    membershipQuery,
+  ]);
 
-  if (companyError) {
-    throw new ApiError(companyError.message, 500);
+  if (companyResult.error) {
+    throw new ApiError(companyResult.error.message, 500);
   }
 
-  const { data: campaigns, error: campaignError } = await supabase
-    .from("campaigns")
-    .select("id,company_id,name,due_label,status,progress")
-    .order("created_at", { ascending: false });
-
-  if (campaignError) {
-    throw new ApiError(campaignError.message, 500);
+  if (campaignResult.error) {
+    throw new ApiError(campaignResult.error.message, 500);
   }
 
-  const visibleCampaignIds = await getVisibleCampaignIds(profile, campaigns ?? []);
-  const visibleCampaigns = (campaigns ?? []).filter((campaign) =>
+  if (membershipResult.error) {
+    throw new ApiError(membershipResult.error.message, 500);
+  }
+
+  const campaigns = (campaignResult.data ?? []) as CampaignRow[];
+  const visibleCampaignIds =
+    profile.role === "Creative"
+      ? new Set(campaigns.map((campaign) => campaign.id))
+      : new Set((membershipResult.data ?? []).map((item) => item.campaign_id as string));
+  const visibleCampaigns = campaigns.filter((campaign) =>
     visibleCampaignIds.has(campaign.id),
   );
   const visibleCampaignIdList = visibleCampaigns.map((campaign) => campaign.id);
 
-  const [folders, contentItems, comments, activity] = await Promise.all([
+  const [folderRows, contentItems, comments, activity] = await Promise.all([
     loadFolders(visibleCampaignIdList),
     loadContentItems(visibleCampaignIdList),
     loadComments(visibleCampaignIdList),
     loadActivity(),
   ]);
 
-  const companyMap = new Map((companies ?? []).map((company) => [company.id, company.name]));
+  const folders = mapFolders(folderRows, contentItems);
+  const companyMap = new Map((companyResult.data ?? []).map((company) => [company.id, company.name]));
   const campaignMap = new Map(visibleCampaigns.map((campaign) => [campaign.id, campaign]));
 
   return {
@@ -766,24 +781,6 @@ async function ensureFolder(campaignId: string, name: string) {
   }
 }
 
-async function getVisibleCampaignIds(profile: Profile, campaigns: CampaignRow[]) {
-  if (profile.role === "Creative") {
-    return new Set(campaigns.map((campaign) => campaign.id));
-  }
-
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("campaign_members")
-    .select("campaign_id")
-    .eq("profile_id", profile.id);
-
-  if (error) {
-    throw new ApiError(error.message, 500);
-  }
-
-  return new Set((data ?? []).map((item) => item.campaign_id as string));
-}
-
 async function assertContentAccess(profile: Profile, content: ContentRow) {
   if (profile.role === "Creative") {
     return;
@@ -806,7 +803,7 @@ async function assertContentAccess(profile: Profile, content: ContentRow) {
   }
 }
 
-async function loadFolders(campaignIds: string[]): Promise<PortalFolder[]> {
+async function loadFolders(campaignIds: string[]): Promise<FolderRow[]> {
   if (!campaignIds.length) {
     return [];
   }
@@ -822,18 +819,19 @@ async function loadFolders(campaignIds: string[]): Promise<PortalFolder[]> {
     throw new ApiError(error.message, 500);
   }
 
-  const { data: content } = await supabase
-    .from("content_items")
-    .select("folder")
-    .in("campaign_id", campaignIds);
+  return (folders ?? []) as FolderRow[];
+}
 
+function mapFolders(rows: FolderRow[], content: ContentRow[]): PortalFolder[] {
   const counts = new Map<string, number>();
-  for (const item of content ?? []) {
-    counts.set(item.folder, (counts.get(item.folder) ?? 0) + 1);
+
+  for (const item of content) {
+    const key = `${item.campaign_id}:${item.folder}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
   }
 
-  return (folders ?? []).map((folder: FolderRow) => ({
-    count: counts.get(folder.name) ?? 0,
+  return rows.map((folder) => ({
+    count: counts.get(`${folder.campaign_id}:${folder.name}`) ?? 0,
     id: folder.id,
     name: folder.name,
   }));
@@ -864,27 +862,17 @@ async function loadComments(campaignIds: string[]): Promise<PortalComment[]> {
   }
 
   const supabase = getSupabaseAdmin();
-  const { data: content } = await supabase
-    .from("content_items")
-    .select("id")
-    .in("campaign_id", campaignIds);
-  const contentIds = (content ?? []).map((item) => item.id);
-
-  if (!contentIds.length) {
-    return [];
-  }
-
   const { data, error } = await supabase
     .from("content_comments")
-    .select("id,content_id,author_name,role,anchor,body,status")
-    .in("content_id", contentIds)
+    .select("id,content_id,author_name,role,anchor,body,status,content_items!inner(campaign_id)")
+    .in("content_items.campaign_id", campaignIds)
     .order("created_at", { ascending: false });
 
   if (error) {
     throw new ApiError(error.message, 500);
   }
 
-  return (data ?? []).map(mapComment);
+  return (data ?? []).map((row) => mapComment(row as CommentRow));
 }
 
 async function loadActivity(): Promise<PortalActivity[]> {

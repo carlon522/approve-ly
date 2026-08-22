@@ -33,6 +33,8 @@
 ## Manual QA
 
 - Upload progress with a large file mock.
+- Workspace bootstrap returns companies, campaigns, and memberships in parallel, then loads folders, content, comments, and activity without duplicate content queries.
+- Returning live users see the cached workspace immediately while the authoritative refresh runs in the background.
 - Slow network behavior for previews and downloads.
 - Empty company, campaign, and folder states.
 - Storage at 70%, 85%, and 95% warnings.
