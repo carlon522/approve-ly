@@ -736,7 +736,10 @@ export default function PortalClient({
   };
 
   const activeRole = session?.role === "Creative" ? viewRole : session?.role ?? "Creative";
-  const capabilities = session ? roleCapabilities[activeRole] : roleCapabilities.Creative;
+  const isWorkspaceBootstrapping = Boolean(
+    liveAuth && session?.accessToken && session.roleConfirmed === undefined,
+  );
+  const capabilities = session && !isWorkspaceBootstrapping ? roleCapabilities[activeRole] : roleCapabilities.Assistant;
   const usesDemoAssignmentRules = !session?.accessToken && session?.role === "Approver";
 
   const companies = useMemo(() => {
@@ -2202,10 +2205,6 @@ export default function PortalClient({
     );
   }
 
-  if (liveAuth && session.accessToken && session.roleConfirmed === undefined) {
-    return <RoleSetupLoadingScreen name={session.name} />;
-  }
-
   return (
     <main
       className={`min-h-screen text-zinc-950 ${
@@ -2225,7 +2224,7 @@ export default function PortalClient({
         {!immersiveApproval ? (
           <Sidebar
             activeView={activeView}
-            canSwitchView={session.role === "Creative"}
+            canSwitchView={session.role === "Creative" && !isWorkspaceBootstrapping}
             onChangeView={navigateToView}
             onChangeRole={handleViewRoleChange}
             demoMode={!liveAuth}
@@ -2737,24 +2736,6 @@ function RoleSetupScreen({
           {saving ? "Setting up your workspace..." : "Continue to workspace"}
           {!saving ? <ChevronRight aria-hidden className="size-4" /> : null}
         </button>
-      </section>
-    </main>
-  );
-}
-
-function RoleSetupLoadingScreen({ name }: { name: string }) {
-  return (
-    <main className="grid min-h-screen place-items-center bg-[#f7f7f4] px-4 py-8 text-zinc-950">
-      <section className="w-full max-w-md rounded-lg border border-[#dedbd2] bg-white p-6 text-center shadow-sm">
-        <div className="mx-auto grid size-11 place-items-center rounded-md bg-zinc-950 text-sm font-semibold text-white">
-          A
-        </div>
-        <p className="mt-5 text-sm font-semibold text-emerald-700">Welcome, {name}</p>
-        <h1 className="mt-2 text-2xl font-semibold">Preparing your workspace</h1>
-        <p className="mt-2 text-sm text-zinc-500">We are checking your account setup.</p>
-        <div className="mt-6 h-1.5 overflow-hidden rounded-full bg-zinc-100">
-          <div className="h-full w-1/2 animate-pulse rounded-full bg-emerald-600" />
-        </div>
       </section>
     </main>
   );
@@ -6561,7 +6542,7 @@ function readDemoState(): DemoPortalState | null {
   }
 }
 
-const workspaceCacheTtlMs = 10 * 60 * 1000;
+const workspaceCacheTtlMs = 30 * 60 * 1000;
 
 function workspaceCacheKey(email: string) {
   return `approveLyWorkspaceCache:${email.trim().toLowerCase()}`;

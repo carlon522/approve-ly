@@ -64,7 +64,8 @@
 
 - Upload progress with a large file mock.
 - Workspace bootstrap returns companies, campaigns, and memberships in parallel, then loads folders, content, comments, and activity without duplicate content queries.
-- Returning live users see the cached workspace immediately while the authoritative refresh runs in the background.
+- Returning live users see the authenticated shell and cached workspace immediately while the authoritative refresh runs in the background.
+- A cold live bootstrap keeps the route layout visible, shows a compact sync status, and does not expose create/approve controls until role permissions resolve.
 - Slow network behavior for previews and downloads.
 - Empty company, campaign, and folder states.
 - Storage at 70%, 85%, and 95% warnings.
