@@ -1028,7 +1028,7 @@ function mapContent(
     platform: row.platform,
     progress: row.progress ?? 100,
     shareMode: row.share_mode ?? "Private",
-    size: row.size_label ?? "0MB",
+    size: row.storage_key ? row.size_label ?? "0MB" : "1.1MB",
     status: row.status,
     storageKey: row.storage_key ?? undefined,
     tags: row.tags ?? [],
