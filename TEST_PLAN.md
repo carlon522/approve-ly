@@ -36,6 +36,7 @@
 - Immersion mode opens from approval review, hides workspace chrome, keeps the fixed exit switch visible, and supports next/previous content by touch, wheel, and keyboard.
 - Immersion approval heart respects permissions and unresolved-comment blocking; comment and share controls remain available.
 - Campaign status exposes Add approver for Creatives, shows assigned approvers, loading, duplicate, and invalid-account states.
+- Folder creation keeps its modal open during saving, disables duplicate submits, renders an empty folder immediately, persists it after refresh, and treats duplicate names as an existing folder.
 - Campaign pages show assigned approvers in a dedicated Campaign team panel; Add approver remains Creative-only.
 - Dashboard deadline heat map renders late, close, on-time, and completed states with the correct red/green intensity; hover and focus reveal the content due details.
 - Dashboard heat map month controls remain usable at mobile width and clicking a marked day opens its most urgent content.

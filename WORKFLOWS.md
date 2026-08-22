@@ -44,6 +44,14 @@
 5. The assigned user sees the campaign in their Approver workspace after the next workspace refresh.
 6. Duplicate assignments are rejected in the interface and remain idempotent at the database boundary.
 
+## Folder Creation
+
+1. A Creative opens Add folder from the campaign workspace.
+2. The dialog remains open while the server request is pending and prevents duplicate submissions.
+3. The server associates the folder with the selected campaign, even when it has no content yet.
+4. The new folder appears immediately and remains visible after a workspace refresh.
+5. Repeating an existing folder name selects the existing folder instead of creating a duplicate or failing on the unique constraint.
+
 ## Account and Campaign Team
 
 1. The Account navigation opens the signed-in user profile, role, capability summary, and workspace snapshot.

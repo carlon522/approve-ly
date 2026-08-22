@@ -31,6 +31,7 @@ export type PortalCampaignMember = {
 };
 
 export type PortalFolder = {
+  campaignId?: string;
   id: string;
   name: string;
   count: number;

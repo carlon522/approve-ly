@@ -99,6 +99,7 @@ type PortalCampaign = (typeof campaigns)[number] & {
 };
 
 type PortalFolder = (typeof folders)[number] & {
+  campaignId?: string;
   id: string;
 };
 
@@ -376,6 +377,7 @@ export default function PortalClient({
   const [campaignMembersLoading, setCampaignMembersLoading] = useState(false);
   const [campaignMemberSaving, setCampaignMemberSaving] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
+  const [folderSaving, setFolderSaving] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [commentOpen, setCommentOpen] = useState(false);
   const [selectedTalent, setSelectedTalent] = useState(initialTalent ?? "");
@@ -806,15 +808,24 @@ export default function PortalClient({
     [accessibleContent, currentProject?.company, currentProject?.name],
   );
 
-  const projectFolders = useMemo(
-    () =>
-      folderList.filter((folder) =>
-        projectContent.some(
-          (item) => item.folder === folder.name || item.folder.startsWith(`${folder.name} /`),
-        ),
-      ),
-    [folderList, projectContent],
-  );
+  const projectFolders = useMemo(() => {
+    if (!currentProject) {
+      return [];
+    }
+
+    const contentFolderNames = new Set(
+      projectContent.flatMap((item) => {
+        const [rootFolder] = item.folder.split(" /");
+        return [item.folder, rootFolder];
+      }),
+    );
+
+    return folderList.filter(
+      (folder) =>
+        folder.campaignId === currentProject.id ||
+        (!folder.campaignId && contentFolderNames.has(folder.name)),
+    );
+  }, [currentProject, folderList, projectContent]);
 
   const routeContent = projectContent.find((item) => item.id === routeActiveItemId);
   const currentFolder =
@@ -1424,35 +1435,54 @@ export default function PortalClient({
 
   const handleAddFolder = async (name: string) => {
     if (!requirePermission(capabilities.canCreate, "Only Creatives can create folders.")) {
-      return;
+      return false;
     }
 
     const folderName = name.trim() || "New folder";
-    const saved = await callBackend<{ folder: PortalFolder }>("/api/folders", {
-      body: {
-        campaign: currentCampaign,
-        company: selectedCompany,
-        name: folderName,
-      },
-      method: "POST",
-    });
+    setFolderSaving(true);
 
-    if (saved?.folder) {
-      setFolderList((items) => [saved.folder, ...items]);
-      setSelectedFolder(saved.folder.name);
-      addActivity("bell", `${saved.folder.name} folder created`);
+    try {
+      const saved = await callBackend<{ created?: boolean; folder: PortalFolder }>("/api/folders", {
+        body: {
+          campaign: currentCampaign,
+          campaignId:
+            currentProject?.id ??
+            campaignList.find(
+              (campaign) => campaign.name === currentCampaign && campaign.company === selectedCompany,
+            )?.id,
+          company: selectedCompany,
+          name: folderName,
+        },
+        method: "POST",
+      });
+
+      if (saved?.folder) {
+        setFolderList((items) => [
+          saved.folder,
+          ...items.filter((item) => item.id !== saved.folder.id),
+        ]);
+        setSelectedFolder(saved.folder.name);
+        if (saved.created === false) {
+          notify("That folder already exists", "neutral");
+        } else {
+          addActivity("bell", `${saved.folder.name} folder created`);
+          notify("Folder created");
+        }
+        return true;
+      }
+
+      if (session?.accessToken) {
+        return false;
+      }
+
+      setFolderList((items) => bumpFolderCount(items, folderName, 0, currentProject?.id));
+      setSelectedFolder(folderName);
+      addActivity("bell", `${folderName} folder created`);
       notify("Folder created");
-      return;
+      return true;
+    } finally {
+      setFolderSaving(false);
     }
-
-    if (session?.accessToken) {
-      return;
-    }
-
-    setFolderList((items) => bumpFolderCount(items, folderName, 0));
-    setSelectedFolder(folderName);
-    addActivity("bell", `${folderName} folder created`);
-    notify("Folder created");
   };
 
   const handleAddComment = async (body: string, anchor: string) => {
@@ -2491,10 +2521,12 @@ export default function PortalClient({
       {folderOpen ? (
         <FolderModal
           onClose={() => setFolderOpen(false)}
-          onSubmit={(name) => {
-            handleAddFolder(name);
-            setFolderOpen(false);
+          onSubmit={async (name) => {
+            if (await handleAddFolder(name)) {
+              setFolderOpen(false);
+            }
           }}
+          saving={folderSaving}
         />
       ) : null}
 
@@ -5959,9 +5991,11 @@ function CampaignAccessModal({
 function FolderModal({
   onClose,
   onSubmit,
+  saving,
 }: {
   onClose: () => void;
-  onSubmit: (name: string) => void;
+  onSubmit: (name: string) => Promise<void>;
+  saving: boolean;
 }) {
   const [name, setName] = useState("");
 
@@ -5971,12 +6005,16 @@ function FolderModal({
         className="grid gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          onSubmit(name);
+          void onSubmit(name);
         }}
       >
         <TextInput label="Name" onChange={setName} placeholder="Folder name" value={name} />
-        <button className="h-11 rounded-md bg-zinc-950 text-sm font-semibold text-white" type="submit">
-          Create folder
+        <button
+          className="h-11 rounded-md bg-zinc-950 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+          disabled={saving}
+          type="submit"
+        >
+          {saving ? "Creating folder..." : "Create folder"}
         </button>
       </form>
     </Modal>
@@ -6666,17 +6704,25 @@ function downloadJson(fileName: string, payload: unknown) {
   URL.revokeObjectURL(url);
 }
 
-function bumpFolderCount(items: PortalFolder[], folderName: string, increment = 1) {
+function bumpFolderCount(
+  items: PortalFolder[],
+  folderName: string,
+  increment = 1,
+  campaignId?: string,
+) {
   const existing = items.find((item) => item.name.toLowerCase() === folderName.toLowerCase());
 
   if (existing) {
     return items.map((item) =>
-      item.id === existing.id ? { ...item, count: item.count + increment } : item,
+      item.id === existing.id
+        ? { ...item, campaignId: item.campaignId ?? campaignId, count: item.count + increment }
+        : item,
     );
   }
 
   return [
     {
+      campaignId,
       count: increment,
       id: `folder-${Date.now()}`,
       name: folderName,

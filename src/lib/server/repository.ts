@@ -450,13 +450,37 @@ export async function createCampaign(profile: Profile, input: {
 
 export async function createFolder(profile: Profile, input: {
   campaign: string;
+  campaignId?: string;
   company: string;
   name: string;
 }) {
   assertCanCreate(profile);
 
-  const campaign = await findCampaign(input.company, input.campaign);
   const supabase = getSupabaseAdmin();
+  const campaign = input.campaignId
+    ? await findCampaignById(input.campaignId)
+    : await findCampaign(input.company, input.campaign);
+  const { data: existing, error: existingError } = await supabase
+    .from("folders")
+    .select("id,campaign_id,name")
+    .eq("campaign_id", campaign.id)
+    .ilike("name", input.name)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new ApiError(existingError.message, 500);
+  }
+
+  if (existing) {
+    return {
+      campaignId: existing.campaign_id,
+      count: 0,
+      created: false,
+      id: existing.id,
+      name: existing.name,
+    } satisfies PortalFolder & { created: boolean };
+  }
+
   const { data, error } = await supabase
     .from("folders")
     .insert({
@@ -466,6 +490,25 @@ export async function createFolder(profile: Profile, input: {
     .select("id,campaign_id,name")
     .single();
 
+  if (error?.code === "23505") {
+    const { data: concurrent } = await supabase
+      .from("folders")
+      .select("id,campaign_id,name")
+      .eq("campaign_id", campaign.id)
+      .ilike("name", input.name)
+      .maybeSingle();
+
+    if (concurrent) {
+      return {
+        campaignId: concurrent.campaign_id,
+        count: 0,
+        created: false,
+        id: concurrent.id,
+        name: concurrent.name,
+      } satisfies PortalFolder & { created: boolean };
+    }
+  }
+
   if (error) {
     throw new ApiError(error.message, 500);
   }
@@ -473,10 +516,12 @@ export async function createFolder(profile: Profile, input: {
   await logActivity("bell", `${input.name} folder created`);
 
   return {
+    campaignId: data.campaign_id,
     count: 0,
+    created: true,
     id: data.id,
     name: data.name,
-  } satisfies PortalFolder;
+  } satisfies PortalFolder & { created: boolean };
 }
 
 export async function createContent(profile: Profile, input: CreateContentInput) {
@@ -1003,6 +1048,25 @@ async function findCampaign(companyName: string, campaignName: string): Promise<
   return data;
 }
 
+async function findCampaignById(campaignId: string): Promise<CampaignRow> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("campaigns")
+    .select("id,company_id,name,due_label,status,progress")
+    .eq("id", campaignId)
+    .maybeSingle();
+
+  if (error) {
+    throw new ApiError(error.message, 500);
+  }
+
+  if (!data) {
+    throw new ApiError("Campaign not found.", 404);
+  }
+
+  return data;
+}
+
 async function ensureFolder(campaignId: string, name: string) {
   const supabase = getSupabaseAdmin();
   const { data: existing } = await supabase
@@ -1067,6 +1131,7 @@ function mapFolders(rows: FolderRow[], content: ContentRow[]): PortalFolder[] {
   }
 
   return rows.map((folder) => ({
+    campaignId: folder.campaign_id,
     count: counts.get(`${folder.campaign_id}:${folder.name}`) ?? 0,
     id: folder.id,
     name: folder.name,
