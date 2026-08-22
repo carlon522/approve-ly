@@ -33,6 +33,7 @@ type CampaignRow = {
   id: string;
   company_id: string;
   name: string;
+  due_at: string | null;
   due_label: string | null;
   status: string | null;
   progress: number | null;
@@ -51,6 +52,7 @@ type ContentRow = {
   campaign_id: string;
   comments_count: number | null;
   content_type: PortalContent["type"];
+  due_at: string | null;
   due_label: string | null;
   file_name: string | null;
   folder: string | null;
@@ -99,7 +101,7 @@ export async function getBootstrap(profile: Profile): Promise<BootstrapPayload> 
     supabase.from("companies").select("id,name").order("name"),
     supabase
       .from("campaigns")
-      .select("id,company_id,name,due_label,status,progress")
+      .select("id,company_id,name,due_at,due_label,status,progress")
       .order("created_at", { ascending: false }),
     membershipQuery,
   ]);
@@ -368,7 +370,7 @@ export async function getSharedBootstrap(token: string, profile?: Profile): Prom
 
   const { data: campaign, error: campaignError } = await supabase
     .from("campaigns")
-    .select("id,company_id,name,due_label,status,progress")
+    .select("id,company_id,name,due_at,due_label,status,progress")
     .eq("id", content.campaign_id)
     .single();
 
@@ -420,6 +422,7 @@ export async function getSharedBootstrap(token: string, profile?: Profile): Prom
 export async function createCampaign(profile: Profile, input: {
   company: string;
   due: string;
+  dueAt?: string;
   name: string;
 }) {
   assertCanCreate(profile);
@@ -431,12 +434,13 @@ export async function createCampaign(profile: Profile, input: {
     .insert({
       company_id: company.id,
       created_by: profile.id,
+      due_at: input.dueAt ?? null,
       due_label: input.due,
       name: input.name,
       progress: 0,
       status: "Planning",
     })
-    .select("id,company_id,name,due_label,status,progress")
+    .select("id,company_id,name,due_at,due_label,status,progress")
     .single();
 
   if (error) {
@@ -538,6 +542,7 @@ export async function createContent(profile: Profile, input: CreateContentInput)
       campaign_id: campaign.id,
       comments_count: 0,
       content_type: input.type,
+      due_at: input.dueAt ?? null,
       due_label: input.due,
       file_name: input.fileName,
       folder: input.folder,
@@ -1032,7 +1037,7 @@ async function findCampaign(companyName: string, campaignName: string): Promise<
   const company = companies?.[0] ?? (await findOrCreateCompany(companyName));
   const { data, error } = await supabase
     .from("campaigns")
-    .select("id,company_id,name,due_label,status,progress")
+    .select("id,company_id,name,due_at,due_label,status,progress")
     .eq("company_id", company.id)
     .ilike("name", campaignName)
     .maybeSingle();
@@ -1052,7 +1057,7 @@ async function findCampaignById(campaignId: string): Promise<CampaignRow> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("campaigns")
-    .select("id,company_id,name,due_label,status,progress")
+    .select("id,company_id,name,due_at,due_label,status,progress")
     .eq("id", campaignId)
     .maybeSingle();
 
@@ -1245,7 +1250,7 @@ async function mapContentWithLookups(row: ContentRow) {
   const supabase = getSupabaseAdmin();
   const { data: campaign, error: campaignError } = await supabase
     .from("campaigns")
-    .select("id,company_id,name,due_label,status,progress")
+    .select("id,company_id,name,due_at,due_label,status,progress")
     .eq("id", row.campaign_id)
     .single();
 
@@ -1275,11 +1280,33 @@ async function logActivity(kind: PortalActivity["kind"], title: string) {
   });
 }
 
+function formatDueLabel(dueAt: string | null) {
+  if (!dueAt) {
+    return "No due date";
+  }
+
+  const date = new Date(dueAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return "No due date";
+  }
+
+  return `${date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+  })}, ${date.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+  })}`;
+}
+
 function mapCampaign(row: CampaignRow, companies: Map<string, string>): PortalCampaign {
   return {
     approvers: "Assigned approvers",
     company: companies.get(row.company_id) ?? "Unknown company",
-    due: row.due_label ?? "No due date",
+    due: row.due_label ?? formatDueLabel(row.due_at),
+    dueAt: row.due_at ?? undefined,
     id: row.id,
     name: row.name,
     progress: row.progress ?? 0,
@@ -1307,7 +1334,8 @@ function mapContent(
     campaign: campaign?.name ?? "Unknown campaign",
     comments: row.comments_count ?? 0,
     company: companyName ?? "Unknown company",
-    due: row.due_label ?? "No due date",
+    due: row.due_label ?? formatDueLabel(row.due_at),
+    dueAt: row.due_at ?? undefined,
     fileName: row.file_name ?? undefined,
     folder: row.folder ?? "Unsorted",
     id: row.id,
@@ -1341,4 +1369,4 @@ function mapComment(row: CommentRow): PortalComment {
 }
 
 const contentSelect =
-  "id,campaign_id,title,platform,status,content_type,folder,due_label,owner_name,version,size_label,file_name,storage_key,mime_type,comments_count,unresolved_count,progress,accent,tags,share_mode,approved_at,archive_delete_at";
+  "id,campaign_id,title,platform,status,content_type,folder,due_at,due_label,owner_name,version,size_label,file_name,storage_key,mime_type,comments_count,unresolved_count,progress,accent,tags,share_mode,approved_at,archive_delete_at";

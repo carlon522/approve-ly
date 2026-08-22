@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { assertString, errorResponse, jsonResponse, readJson } from "@/lib/server/http";
+import { assertString, errorResponse, jsonResponse, optionalDateTime, readJson } from "@/lib/server/http";
 import { createContent } from "@/lib/server/repository";
 import { requireProfile } from "@/lib/server/supabase";
 import type { CreateContentInput } from "@/lib/server/types";
@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
       campaign: assertString(body.campaign, "Campaign"),
       company: assertString(body.company, "Company"),
       due: assertString(body.due, "Due date"),
+      dueAt: optionalDateTime(body.dueAt, "Due date"),
       fileName: typeof body.fileName === "string" ? body.fileName : undefined,
       folder: assertString(body.folder, "Folder"),
       mimeType: typeof body.mimeType === "string" ? body.mimeType : undefined,

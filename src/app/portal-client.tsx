@@ -94,7 +94,8 @@ type WorkspaceSelection = {
   folder: string;
 };
 
-type PortalCampaign = (typeof campaigns)[number] & {
+type PortalCampaign = Omit<(typeof campaigns)[number], "dueAt"> & {
+  dueAt?: string;
   id: string;
 };
 
@@ -106,6 +107,7 @@ type PortalFolder = (typeof folders)[number] & {
 type PortalContent = ContentItem & {
   campaign: string;
   company: string;
+  dueAt?: string;
   tags: string[];
   fileName?: string;
   mimeType?: string;
@@ -163,7 +165,7 @@ type UploadDraft = {
   platform: Platform;
   type: PortalContent["type"];
   folder: string;
-  due: string;
+  dueAt: string;
   talent: string;
   file?: File;
   tags: string;
@@ -301,7 +303,7 @@ const activitySeed: PortalActivity[] = [
 ];
 
 const defaultUploadDraft: UploadDraft = {
-  due: "Aug 28, 16:00",
+  dueAt: "2026-08-28T16:00",
   fileName: "",
   fileSize: "",
   folder: "Paid social / Reels",
@@ -965,6 +967,17 @@ export default function PortalClient({
         : accessibleContent,
     [accessibleContent, selectedTalent],
   );
+  const talentNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          accessibleContent
+            .map((item) => talentFromTags(item.tags))
+            .filter((name): name is string => Boolean(name)),
+        ),
+      ).sort((left, right) => left.localeCompare(right)),
+    [accessibleContent],
+  );
 
   const addActivity = (kind: ActivityKind, title: string, meta = "Just now") => {
     setActivityList((items) => [
@@ -1212,11 +1225,14 @@ export default function PortalClient({
     setUploadProgress({ label: "Saving content details", value: 78 });
     const folderName = draft.folder.trim() || "Unsorted";
     const tags = buildContentTags(draft.tags, draft.talent);
+    const dueAt = normalizeDateTimeInput(draft.dueAt);
+    const due = formatDueLabel(dueAt) ?? "No due date";
     const saved = await callBackend<{ item: PortalContent }>("/api/content", {
       body: {
         campaign: currentCampaign,
         company: selectedCompany,
-        due: draft.due.trim() || "No due date",
+        due,
+        dueAt,
         fileName: draft.fileName,
         folder: folderName,
         mimeType: draft.mimeType,
@@ -1251,7 +1267,8 @@ export default function PortalClient({
       campaign: currentCampaign,
       comments: 0,
       company: selectedCompany,
-      due: draft.due.trim() || "No due date",
+      due,
+      dueAt,
       fileName: draft.fileName || `${nextId.toLowerCase()}-asset`,
       folder: folderName,
       id: nextId,
@@ -1278,15 +1295,18 @@ export default function PortalClient({
     notify("Upload added to the approval queue");
   };
 
-  const handleAddCampaign = async (name: string, company: string, due: string) => {
+  const handleAddCampaign = async (name: string, company: string, dueAtInput: string) => {
     if (!requirePermission(capabilities.canCreate, "Only Creatives can create campaigns.")) {
       return;
     }
 
+    const dueAt = normalizeDateTimeInput(dueAtInput);
+    const due = formatDueLabel(dueAt) ?? "No due date";
     const saved = await callBackend<{ campaign: PortalCampaign }>("/api/campaigns", {
       body: {
         company: company.trim() || selectedCompany,
-        due: due.trim() || "No due date",
+        due,
+        dueAt,
         name: name.trim() || "Untitled campaign",
       },
       method: "POST",
@@ -1308,7 +1328,8 @@ export default function PortalClient({
     const nextCampaign: PortalCampaign = {
       approvers: "0 approvers",
       company: company.trim() || selectedCompany,
-      due: due.trim() || "No due date",
+      due,
+      dueAt,
       id: `campaign-${Date.now()}`,
       name: name.trim() || "Untitled campaign",
       progress: 0,
@@ -2483,6 +2504,7 @@ export default function PortalClient({
         <UploadModal
           defaultFolder={selectedFolder === "All folders" ? defaultUploadDraft.folder : selectedFolder}
           folders={folderList}
+          talents={talentNames}
           onClose={() => setUploadOpen(false)}
           progress={uploadProgress}
           onSubmit={(draft) => {
@@ -2498,8 +2520,8 @@ export default function PortalClient({
         <CampaignModal
           company={selectedCompany}
           onClose={() => setCampaignOpen(false)}
-          onSubmit={(name, company, due) => {
-            handleAddCampaign(name, company, due);
+          onSubmit={(name, company, dueAt) => {
+            handleAddCampaign(name, company, dueAt);
             setCampaignOpen(false);
           }}
         />
@@ -4406,10 +4428,11 @@ function DashboardDueHeatmap({
   const [monthCursor, setMonthCursor] = useState(
     () => new Date(today.getFullYear(), today.getMonth(), 1),
   );
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
   const datedItems = useMemo<DatedDueItem[]>(
     () =>
       contentItems.flatMap((item) => {
-        const date = parseDueDate(item.due, today);
+        const date = parseDueDate(item.due, today, item.dueAt);
 
         if (!date) {
           return [];
@@ -4543,14 +4566,16 @@ function DashboardDueHeatmap({
               return (
                 <button
                   aria-label={label}
+                  aria-pressed={selectedDateKey === calendarDateKey(date)}
                   className={`group relative flex min-h-14 min-w-0 flex-col items-start justify-between rounded-md border p-1.5 text-left transition focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 sm:min-h-16 sm:p-2 ${
                     entries.length
                       ? "border-transparent hover:-translate-y-0.5 hover:shadow-sm"
                       : "border-transparent"
-                  } ${isCurrentMonth ? "" : "opacity-45"}`}
+                  } ${selectedDateKey === calendarDateKey(date) ? "ring-2 ring-zinc-950 ring-offset-1" : ""} ${isCurrentMonth ? "" : "opacity-45"}`}
                   disabled={!entries.length}
                   key={calendarDateKey(date)}
                   onClick={() => {
+                    setSelectedDateKey(calendarDateKey(date));
                     if (entries[0]) {
                       onOpenContent(entries[0].item);
                     }
@@ -5739,15 +5764,166 @@ function ProgressBar({ value, className = "" }: { value: number; className?: str
   );
 }
 
+function DateTimeInput({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1.5 text-sm font-medium">
+      {label}
+      <input
+        aria-label={label}
+        className="h-11 min-w-0 rounded-md border border-zinc-200 bg-white px-3 text-sm outline-none transition focus:border-zinc-400"
+        onChange={(event) => onChange(event.target.value)}
+        type="datetime-local"
+        value={value}
+      />
+    </label>
+  );
+}
+
+function TalentTagInput({
+  onChange,
+  options,
+  value,
+}: {
+  onChange: (value: string) => void;
+  options: string[];
+  value: string;
+}) {
+  const [query, setQuery] = useState(value);
+  const [locked, setLocked] = useState(Boolean(value));
+  const [open, setOpen] = useState(false);
+  const normalizedQuery = query.trim().toLowerCase();
+  const matches = options.filter((option) => option.toLowerCase().includes(normalizedQuery)).slice(0, 6);
+  const exactMatch = options.find((option) => option.toLowerCase() === normalizedQuery);
+  const hasNewTalent = Boolean(normalizedQuery && !exactMatch);
+
+  const commit = (name: string) => {
+    const nextName = name.trim();
+
+    if (!nextName) {
+      return;
+    }
+
+    onChange(nextName);
+    setQuery(nextName);
+    setLocked(true);
+    setOpen(false);
+  };
+
+  const remove = () => {
+    onChange("");
+    setQuery("");
+    setLocked(false);
+    setOpen(false);
+  };
+
+  return (
+    <div className="grid gap-1.5 text-sm font-medium">
+      <span>Talent / influencer</span>
+      {locked ? (
+        <div className="flex min-h-11 items-center justify-between gap-2 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-2">
+          <span className="inline-flex min-w-0 items-center gap-2 text-violet-900">
+            <Users aria-hidden className="size-4 shrink-0" />
+            <span className="truncate">{value}</span>
+            <span className="shrink-0 rounded-full bg-violet-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-800">
+              Locked tag
+            </span>
+          </span>
+          <IconButton label="Remove talent tag" icon={X} onClick={remove} />
+        </div>
+      ) : (
+        <div className="relative">
+          <input
+            aria-autocomplete="list"
+            aria-controls="talent-suggestions"
+            aria-expanded={open}
+            aria-label="Talent or influencer"
+            className="h-11 w-full rounded-md border border-zinc-200 bg-white px-3 outline-none transition focus:border-zinc-400"
+            onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              onChange(event.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={(event) => {
+              if (event.key === "Tab" && query.trim()) {
+                event.preventDefault();
+                commit(exactMatch ?? matches[0] ?? query);
+              }
+
+              if (event.key === "Enter" && query.trim()) {
+                event.preventDefault();
+                commit(exactMatch ?? matches[0] ?? query);
+              }
+            }}
+            placeholder="Search or add a talent"
+            role="combobox"
+            value={query}
+          />
+          {open && (matches.length || hasNewTalent) ? (
+            <div
+              className="absolute inset-x-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-zinc-200 bg-white p-1 shadow-lg"
+              id="talent-suggestions"
+              role="listbox"
+            >
+              {matches.map((option) => (
+                <button
+                  className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm font-medium text-zinc-800 hover:bg-zinc-100"
+                  key={option}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => commit(option)}
+                  role="option"
+                  aria-selected={false}
+                  type="button"
+                >
+                  <span className="truncate">{option}</span>
+                  <Check aria-hidden className="size-4 text-emerald-600" />
+                </button>
+              ))}
+              {hasNewTalent ? (
+                <button
+                  className="flex w-full items-start gap-2 rounded-md border-t border-zinc-100 px-3 py-2 text-left text-sm hover:bg-amber-50"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => commit(query)}
+                  type="button"
+                >
+                  <Plus aria-hidden className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold text-zinc-900">Add &quot;{query.trim()}&quot;</span>
+                    <span className="mt-0.5 block text-xs font-medium text-amber-700">Adding new talent</span>
+                  </span>
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      )}
+      <span className="text-xs font-normal text-zinc-500">
+        {locked ? "This talent tag is attached to the upload. Remove it to choose another." : "Type to search, then press Tab to lock the tag."}
+      </span>
+    </div>
+  );
+}
+
 function UploadModal({
   defaultFolder,
   folders,
+  talents,
   onClose,
   onSubmit,
   progress,
 }: {
   defaultFolder: string;
   folders: PortalFolder[];
+  talents: string[];
   onClose: () => void;
   onSubmit: (draft: UploadDraft) => void;
   progress: UploadProgress | null;
@@ -5792,16 +5968,15 @@ function UploadModal({
             options={Array.from(new Set([defaultFolder, ...folders.map((folder) => folder.name)]))}
             value={draft.folder}
           />
-          <TextInput
-            label="Due"
-            onChange={(value) => setDraft((item) => ({ ...item, due: value }))}
-            value={draft.due}
+          <DateTimeInput
+            label="Due date"
+            onChange={(value) => setDraft((item) => ({ ...item, dueAt: value }))}
+            value={draft.dueAt}
           />
         </div>
-        <TextInput
-          label="Talent / influencer"
+        <TalentTagInput
+          options={talents}
           onChange={(value) => setDraft((item) => ({ ...item, talent: value }))}
-          placeholder="e.g. Amelia Rose"
           value={draft.talent}
         />
         <TextInput
@@ -5877,11 +6052,11 @@ function CampaignModal({
 }: {
   company: string;
   onClose: () => void;
-  onSubmit: (name: string, company: string, due: string) => void;
+  onSubmit: (name: string, company: string, dueAt: string) => void;
 }) {
   const [name, setName] = useState("");
   const [nextCompany, setNextCompany] = useState(company);
-  const [due, setDue] = useState("Sep 30");
+  const [dueAt, setDueAt] = useState("2026-09-30T12:00");
 
   return (
     <Modal onClose={onClose} title="Add campaign">
@@ -5889,12 +6064,12 @@ function CampaignModal({
         className="grid gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          onSubmit(name, nextCompany, due);
+          onSubmit(name, nextCompany, dueAt);
         }}
       >
         <TextInput label="Name" onChange={setName} placeholder="Campaign name" value={name} />
         <TextInput label="Company" onChange={setNextCompany} value={nextCompany} />
-        <TextInput label="Due" onChange={setDue} value={due} />
+        <DateTimeInput label="Due date" onChange={setDueAt} value={dueAt} />
         <button className="h-11 rounded-md bg-zinc-950 text-sm font-semibold text-white" type="submit">
           Create campaign
         </button>
@@ -6535,7 +6710,46 @@ function formatBytes(bytes: number) {
 
 const calendarWeekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function parseDueDate(label: string, now: Date) {
+function normalizeDateTimeInput(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function formatDueLabel(dueAt?: string) {
+  if (!dueAt) {
+    return undefined;
+  }
+
+  const date = new Date(dueAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+
+  return `${date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+  })}, ${date.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+  })}`;
+}
+
+function parseDueDate(label: string, now: Date, dueAt?: string) {
+  if (dueAt) {
+    const structuredDate = new Date(dueAt);
+
+    if (!Number.isNaN(structuredDate.getTime())) {
+      return structuredDate;
+    }
+  }
+
   const value = label.trim();
 
   if (!value || /no due date/i.test(value)) {

@@ -16,6 +16,7 @@ export type PortalCampaign = {
   name: string;
   company: string;
   due: string;
+  dueAt?: string;
   status: string;
   approvers: string;
   progress: number;
@@ -79,6 +80,7 @@ export type CreateContentInput = {
   campaign: string;
   company: string;
   due: string;
+  dueAt?: string;
   fileName?: string;
   folder: string;
   mimeType?: string;

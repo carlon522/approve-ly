@@ -11,6 +11,7 @@
 - Archive scheduling date math.
 - Reminder policy inheritance.
 - Storage usage calculations.
+- Structured due date normalization preserves the selected date/time and uses legacy labels only as a fallback.
 
 ## Integration Tests
 
@@ -40,6 +41,8 @@
 - Campaign pages show assigned approvers in a dedicated Campaign team panel; Add approver remains Creative-only.
 - Dashboard deadline heat map renders late, close, on-time, and completed states with the correct red/green intensity; hover and focus reveal the content due details.
 - Dashboard heat map month controls remain usable at mobile width and clicking a marked day opens its most urgent content.
+- Upload and campaign due date controls open a native date/time picker; creating either record sends a structured `dueAt` value.
+- Talent input filters existing names while typing, commits an existing match with Tab, locks the tag after commit, and labels unmatched text as `Adding new talent`.
 - Dashboard renders at mobile, tablet, and desktop sizes.
 - Mobile app shell keeps the bottom navigation fixed, clears page content, and preserves sign-out/reset actions in the sticky header.
 - Mobile navigation maps to the correct role-specific destinations and uses full accessible names for shortened labels.

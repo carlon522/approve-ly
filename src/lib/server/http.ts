@@ -37,3 +37,21 @@ export function assertString(value: unknown, label: string) {
 
   return value.trim();
 }
+
+export function optionalDateTime(value: unknown, label: string) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (typeof value !== "string") {
+    throw new ApiError(`${label} must be a valid date and time.`, 400);
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new ApiError(`${label} must be a valid date and time.`, 400);
+  }
+
+  return date.toISOString();
+}

@@ -29,6 +29,8 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - Image
 - Carousel
 
+Talent/influencer labels behave like content tags: existing names are searchable as the user types, Tab locks a selected match, and unmatched text is clearly labelled as a new talent before it is added.
+
 ## Platforms
 
 - Instagram
@@ -99,6 +101,7 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - Due dates become progressively red as they approach, with late items using the strongest red.
 - Hovering or focusing a marked day reveals the expiring content and due label; selecting it opens the approval page.
 - Late, running-close, and on-time summaries count open approvals only. Approved and archive-scheduled content remains visible as completed green markers.
+- New campaign and content deadlines use a structured `due_at` timestamp selected with a calendar/date-time control; the legacy display label remains for readable history.
 
 ## Immersion Approval Mode
 

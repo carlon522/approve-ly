@@ -49,7 +49,8 @@ This model is intentionally relational and explicit so permissions, audit trails
 - company_id
 - name
 - description
-- due_date
+- due_at: timestamptz; canonical calendar and sorting value.
+- due_label: text; display fallback for legacy records.
 - default_reminder_policy_id
 - created_by
 - created_at
@@ -86,6 +87,8 @@ This model is intentionally relational and explicit so permissions, audit trails
 - created_by
 - created_at
 
+Talent and influencer labels are stored as namespaced content tags (`talent:<name>`). The upload UI searches existing names and commits a selected or newly typed name as a locked tag.
+
 ## Content Tables
 
 ### content_items
@@ -100,7 +103,8 @@ This model is intentionally relational and explicit so permissions, audit trails
 - platform: instagram, tiktok, youtube_shorts
 - caption
 - hashtags
-- due_date
+- due_at: timestamptz; canonical content approval deadline.
+- due_label: text; display fallback for legacy records.
 - current_version_id
 - approved_by
 - approved_at

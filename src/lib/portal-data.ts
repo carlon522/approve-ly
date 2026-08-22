@@ -25,6 +25,7 @@ export type ContentItem = {
   type: "Video" | "Image" | "Carousel";
   folder: string;
   due: string;
+  dueAt?: string;
   owner: string;
   version: string;
   size: string;
@@ -83,6 +84,7 @@ export const contentItems: ContentItem[] = [
     type: "Video",
     folder: "Paid social / Reels",
     due: "Today, 16:00",
+    dueAt: "2026-08-22T16:00:00.000Z",
     owner: "Maya Chen",
     version: "V3",
     size: "1.1MB",
@@ -100,6 +102,7 @@ export const contentItems: ContentItem[] = [
     type: "Video",
     folder: "Organic / Creator edits",
     due: "Tomorrow, 10:00",
+    dueAt: "2026-08-23T10:00:00.000Z",
     owner: "Noah Patel",
     version: "V1",
     size: "1.1MB",
@@ -117,6 +120,7 @@ export const contentItems: ContentItem[] = [
     type: "Carousel",
     folder: "Launch / Static",
     due: "Aug 24, 09:30",
+    dueAt: "2026-08-24T09:30:00.000Z",
     owner: "Lina Torres",
     version: "V2",
     size: "1.1MB",
@@ -134,6 +138,7 @@ export const contentItems: ContentItem[] = [
     type: "Video",
     folder: "Founder content",
     due: "Aug 26, 12:00",
+    dueAt: "2026-08-26T12:00:00.000Z",
     owner: "Elliot Ross",
     version: "V4",
     size: "1.1MB",
@@ -158,6 +163,7 @@ export const campaigns = [
     name: "Q3 Launch",
     company: "Northstar Studio",
     due: "Aug 28",
+    dueAt: "2026-08-28T16:00:00.000Z",
     status: "Active",
     approvers: "4 approvers",
     progress: 72,
@@ -166,6 +172,7 @@ export const campaigns = [
     name: "Evergreen Shorts",
     company: "Kindred Goods",
     due: "Sep 06",
+    dueAt: "2026-09-06T16:00:00.000Z",
     status: "Review",
     approvers: "2 approvers",
     progress: 46,
@@ -174,6 +181,7 @@ export const campaigns = [
     name: "Back to Work",
     company: "Aster Home",
     due: "Sep 12",
+    dueAt: "2026-09-12T16:00:00.000Z",
     status: "Planning",
     approvers: "3 approvers",
     progress: 24,

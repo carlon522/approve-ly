@@ -4,13 +4,14 @@
 
 1. Creative selects company, campaign, and folder.
 2. Creative chooses video, image, or carousel.
-3. Creative enters title, platform, caption, hashtags, tags, and due date.
-4. App requests a signed direct upload.
-5. Browser uploads original file to storage or video provider.
-6. App records the uploaded file and creates version 1.
-7. Status becomes submitted.
-8. Assigned approvers receive a notification.
-9. Activity log records upload and submission.
+3. Creative enters title, platform, caption, hashtags, tags, and a due date/time selected from the native calendar control.
+4. Talent/influencer is selected from searchable existing tags or committed as a visibly labelled new talent tag with Tab.
+5. App requests a signed direct upload.
+6. Browser uploads original file to storage or video provider.
+7. App records the uploaded file and creates version 1.
+8. Status becomes submitted.
+9. Assigned approvers receive a notification.
+10. Activity log records upload and submission.
 
 ## First Login Role Setup
 
@@ -127,6 +128,8 @@
 9. Status becomes archived and metadata remains visible.
 
 ## Due Date Reminders
+
+Due dates are stored as `due_at` timestamps for filtering, sorting, reminders, and calendar grouping. `due_label` remains as a readable compatibility field for older records. Dashboard heat-map dates are selectable and open the most urgent approval due on that day.
 
 Use the most specific reminder policy available:
 

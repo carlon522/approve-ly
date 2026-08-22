@@ -24,6 +24,7 @@ create table if not exists public.campaigns (
   created_by uuid references public.profiles(id) on delete set null,
   name text not null,
   due_label text,
+  due_at timestamptz,
   status text not null default 'Planning',
   progress integer not null default 0 check (progress between 0 and 100),
   created_at timestamptz not null default now(),
@@ -69,6 +70,7 @@ create table if not exists public.content_items (
   content_type text not null check (content_type in ('Video', 'Image', 'Carousel')),
   folder text not null default 'Unsorted',
   due_label text,
+  due_at timestamptz,
   owner_name text,
   version text not null default 'V1',
   size_label text not null default '0MB',
@@ -89,6 +91,12 @@ create table if not exists public.content_items (
 
 create index if not exists content_items_campaign_created_idx
   on public.content_items (campaign_id, created_at desc);
+
+create index if not exists campaigns_due_at_idx
+  on public.campaigns (due_at);
+
+create index if not exists content_items_due_at_idx
+  on public.content_items (due_at);
 
 create table if not exists public.content_comments (
   id uuid primary key default gen_random_uuid(),
