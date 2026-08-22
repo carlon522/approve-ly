@@ -1974,30 +1974,90 @@ export default function PortalClient({
 }
 
 function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
+  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [name, setName] = useState("Carlo");
   const [email, setEmail] = useState("creative@approvely.app");
   const [password, setPassword] = useState("approval");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<Role>("Creative");
   const [error, setError] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const liveAuth = isSupabaseBrowserConfigured();
+  const isSignUp = mode === "sign-up";
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError("");
+    setAuthMessage("");
+
+    if (isSignUp) {
+      if (name.trim().length < 2) {
+        setError("Enter your name so your team can identify you.");
+        return;
+      }
+      if (password.length < 8) {
+        setError("Use a password with at least 8 characters.");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Passwords do not match.");
+        return;
+      }
+    }
+
+    setAuthLoading(true);
 
     if (liveAuth) {
       const supabase = createBrowserSupabaseClient();
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      if (isSignUp) {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          options: {
+            data: { name: name.trim() },
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+          },
+          password,
+        });
+
+        if (signUpError) {
+          setAuthLoading(false);
+          setError(signUpError.message);
+          return;
+        }
+
+        if (!data.session?.access_token || !data.user?.email) {
+          setAuthLoading(false);
+          setAuthMessage("Account created. Check your email to confirm your address, then sign in.");
+          setMode("sign-in");
+          setPassword("");
+          setConfirmPassword("");
+          return;
+        }
+
+        setAuthLoading(false);
+        onLogin({
+          accessToken: data.session.access_token,
+          email: data.user.email,
+          name:
+            typeof data.user.user_metadata?.name === "string"
+              ? data.user.user_metadata.name
+              : name.trim() || data.user.email,
+          role,
+        });
+        return;
+      }
+
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
       if (signInError || !data.session?.access_token || !data.user.email) {
+        setAuthLoading(false);
         setError(signInError?.message ?? "Sign in failed.");
         return;
       }
 
-      setError("");
+      setAuthLoading(false);
       onLogin({
         accessToken: data.session.access_token,
         email: data.user.email,
@@ -2010,6 +2070,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
       return;
     }
 
+    setAuthLoading(false);
     onLogin({
       email,
       name: name.trim() || email.split("@")[0] || "User",
@@ -2029,6 +2090,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
 
     setGoogleLoading(true);
     setError("");
+    setAuthMessage("");
     const { error: oauthError } = await createBrowserSupabaseClient().auth.signInWithOAuth({
       options: {
         redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
@@ -2079,10 +2141,12 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
 
       <section className="mx-auto mt-4 w-full max-w-xl rounded-lg border border-[#dedbd2] bg-white p-4 shadow-sm lg:mt-0 lg:self-center">
         <div className="mb-5">
-          <h2 className="text-xl font-semibold">Sign in</h2>
+          <h2 className="text-xl font-semibold">{isSignUp ? "Create your account" : "Sign in"}</h2>
           <p className="mt-1 text-sm text-zinc-500">
             {liveAuth
-              ? "Email/password and Google use Supabase Auth."
+              ? isSignUp
+                ? "Create a secure workspace account with email or Google."
+                : "Use your email/password or continue with Google."
               : "Demo mode is active until Supabase env vars are added."}
           </p>
         </div>
@@ -2091,20 +2155,31 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
             {error}
           </div>
         ) : null}
+        {authMessage ? (
+          <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">
+            {authMessage}
+          </div>
+        ) : null}
         <form className="grid gap-3" onSubmit={submit}>
-          <label className="grid gap-1.5 text-sm font-medium">
-            Name
-            <input
-              className="h-11 rounded-md border border-zinc-200 px-3 outline-none transition focus:border-zinc-400"
-              onChange={(event) => setName(event.target.value)}
-              value={name}
-            />
-          </label>
+          {isSignUp || !liveAuth ? (
+            <label className="grid gap-1.5 text-sm font-medium">
+              Name
+              <input
+                autoComplete="name"
+                className="h-11 rounded-md border border-zinc-200 px-3 outline-none transition focus:border-zinc-400"
+                onChange={(event) => setName(event.target.value)}
+                required={isSignUp}
+                value={name}
+              />
+            </label>
+          ) : null}
           <label className="grid gap-1.5 text-sm font-medium">
             Email
             <input
+              autoComplete="email"
               className="h-11 rounded-md border border-zinc-200 px-3 outline-none transition focus:border-zinc-400"
               onChange={(event) => setEmail(event.target.value)}
+              required
               type="email"
               value={email}
             />
@@ -2112,30 +2187,49 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
           <label className="grid gap-1.5 text-sm font-medium">
             Password
             <input
+              autoComplete={isSignUp ? "new-password" : "current-password"}
               className="h-11 rounded-md border border-zinc-200 px-3 outline-none transition focus:border-zinc-400"
               onChange={(event) => setPassword(event.target.value)}
+              minLength={isSignUp ? 8 : undefined}
+              required
               type="password"
               value={password}
             />
           </label>
-          <label className="grid gap-1.5 text-sm font-medium">
-            Role
-            <select
-              className="h-11 rounded-md border border-zinc-200 bg-white px-3 outline-none transition focus:border-zinc-400"
-              onChange={(event) => setRole(event.target.value as Role)}
-              value={role}
-            >
-              <option>Creative</option>
-              <option>Approver</option>
-              <option>Assistant</option>
-            </select>
-          </label>
+          {isSignUp ? (
+            <label className="grid gap-1.5 text-sm font-medium">
+              Confirm password
+              <input
+                autoComplete="new-password"
+                className="h-11 rounded-md border border-zinc-200 px-3 outline-none transition focus:border-zinc-400"
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+                type="password"
+                value={confirmPassword}
+              />
+            </label>
+          ) : null}
+          {!liveAuth ? (
+            <label className="grid gap-1.5 text-sm font-medium">
+              Demo role
+              <select
+                className="h-11 rounded-md border border-zinc-200 bg-white px-3 outline-none transition focus:border-zinc-400"
+                onChange={(event) => setRole(event.target.value as Role)}
+                value={role}
+              >
+                <option>Creative</option>
+                <option>Approver</option>
+                <option>Assistant</option>
+              </select>
+            </label>
+          ) : null}
           <button
             className="mt-2 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            disabled={authLoading}
             type="submit"
           >
             <LockKeyhole aria-hidden className="size-4" />
-            Sign in
+            {authLoading ? (isSignUp ? "Creating account..." : "Signing in...") : isSignUp ? "Create account" : "Sign in"}
           </button>
         </form>
         <button
@@ -2147,6 +2241,20 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
           <ShieldCheck aria-hidden className="size-4" />
           {googleLoading ? "Opening Google..." : "Continue with Google"}
         </button>
+        <div className="mt-5 flex items-center justify-center gap-1 text-sm text-zinc-500">
+          <span>{isSignUp ? "Already have an account?" : "New to Approve.ly?"}</span>
+          <button
+            className="font-semibold text-zinc-950 underline decoration-zinc-300 underline-offset-4 transition hover:decoration-zinc-950"
+            onClick={() => {
+              setMode(isSignUp ? "sign-in" : "sign-up");
+              setError("");
+              setAuthMessage("");
+            }}
+            type="button"
+          >
+            {isSignUp ? "Sign in" : "Create an account"}
+          </button>
+        </div>
       </section>
     </main>
   );

@@ -33,7 +33,7 @@ Required production env vars:
 
 ### Google Auth
 
-The app includes the Supabase OAuth callback at `/auth/callback` and the sign-in button uses it automatically. To enable the provider:
+The login screen supports email/password account creation and Google sign-in. New email accounts may need to confirm their email address before the first login, depending on the Supabase Auth email-confirmation setting. The app includes the Supabase OAuth callback at `/auth/callback` and the Google button uses it automatically. To enable the provider:
 
 1. In Google Cloud Console, create a Web OAuth client and add your Supabase callback URL: `https://<project-ref>.supabase.co/auth/v1/callback`.
 2. In Supabase, open Authentication > Providers > Google, enable it, and paste the Google client ID and secret.
