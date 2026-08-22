@@ -43,6 +43,9 @@ Approve.ly is an operational SaaS tool, not a marketing site. The interface shou
 ## Responsive Rules
 
 - Mobile first.
+- On mobile, use a compact sticky app header for workspace identity and account actions, plus a fixed bottom navigation dock with safe-area padding.
+- Mobile navigation labels may be shortened for fit, but each control keeps its full accessible name and maps to the same route as desktop navigation.
+- Use motion-safe active-tab transitions and respect `prefers-reduced-motion`.
 - Bottom sticky action bar on content approval.
 - Dashboard stats should stack into two columns on small screens and four columns on desktop.
 - Campaign content list should support compact cards on mobile and table-like density on desktop.

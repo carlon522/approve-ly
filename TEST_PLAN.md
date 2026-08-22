@@ -22,6 +22,8 @@
 ## UI Tests
 
 - Dashboard renders at mobile, tablet, and desktop sizes.
+- Mobile app shell keeps the bottom navigation fixed, clears page content, and preserves sign-out/reset actions in the sticky header.
+- Mobile navigation maps to the correct role-specific destinations and uses full accessible names for shortened labels.
 - Campaign filters do not overflow on mobile.
 - Approval page shows sticky mobile action bar.
 - Platform previews fit inside the viewport.
