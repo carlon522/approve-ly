@@ -30,6 +30,7 @@ Use App Router routes and keep screens focused on real workflows.
 - `/api/uploads/complete`: record uploaded files and metadata.
 - `/api/downloads/sign`: create signed download URL.
 - `/api/share-links`: create, revoke, and inspect share links.
+- `GET|POST /api/campaigns/[campaignId]/members`: list assigned campaign approvers or grant an existing Approver account access; Creative-only.
 - `POST /api/content/[contentId]/unapprove`: remove approval and cancel a pending archive hold.
 - `DELETE /api/content/[contentId]`: permanently delete content, stored media, and related comments.
 - `/api/webhooks/storage`: storage/video processing callbacks.

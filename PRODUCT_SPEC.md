@@ -18,6 +18,7 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - Assistant: view-only access to assigned companies or campaigns, with download access.
 - Super Admin: global owner account for all companies, users, storage, archive state, and audit logs.
 - New accounts choose Creative, Approver, or Assistant on a dedicated first-login setup page before entering the dashboard.
+- Creatives can switch between Creative, Approver, and Assistant interface views for review and handoff checks; this does not change their persisted permissions.
 
 ## Content Types
 
@@ -62,6 +63,12 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - Public share links are deliberately created, can download, and expire after 7 days.
 - Public links should expose only the selected content item or selected explicit scope.
 - Link creation, views, downloads, expiry, and revocation should be logged.
+
+## Campaign Access
+
+- Creatives can add an existing Approve.ly Approver account to a campaign by email.
+- The assignment is stored in `campaign_members` and immediately makes the campaign visible in that Approver's workspace.
+- Approvers receive review, comment, and approval access for assigned campaign content only.
 
 ## Archive
 

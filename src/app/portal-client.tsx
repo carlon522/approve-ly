@@ -64,7 +64,7 @@ import {
   createBrowserSupabaseClient,
   isSupabaseBrowserConfigured,
 } from "@/lib/supabase/browser";
-import type { BootstrapPayload, Profile } from "@/lib/server/types";
+import type { BootstrapPayload, PortalCampaignMember, Profile } from "@/lib/server/types";
 
 type Role = "Creative" | "Approver" | "Assistant";
 type View =
@@ -143,6 +143,7 @@ type UploadProgress = {
 
 type DemoPortalState = {
   activity: PortalActivity[];
+  campaignMembers?: PortalCampaignMember[];
   campaigns: PortalCampaign[];
   comments: PortalComment[];
   contentItems: PortalContent[];
@@ -233,6 +234,25 @@ const campaignSeed: PortalCampaign[] = campaigns.map((campaign, index) => ({
   id: `campaign-${index + 1}`,
 }));
 
+const campaignMemberSeed: PortalCampaignMember[] = [
+  {
+    campaignId: "campaign-1",
+    email: "priya@approvely.app",
+    id: "member-demo-priya",
+    name: "Priya Shah",
+    profileId: "profile-demo-priya",
+    role: "Approver",
+  },
+  {
+    campaignId: "campaign-1",
+    email: "marcus@approvely.app",
+    id: "member-demo-marcus",
+    name: "Marcus Lee",
+    profileId: "profile-demo-marcus",
+    role: "Approver",
+  },
+];
+
 const folderSeed: PortalFolder[] = folders.map((folder, index) => ({
   ...folder,
   id: `folder-${index + 1}`,
@@ -312,6 +332,7 @@ export default function PortalClient({
   const router = useRouter();
   const liveAuth = isSupabaseBrowserConfigured();
   const [session, setSession] = useState<Session | null>(null);
+  const [viewRole, setViewRole] = useState<Role>(() => readStoredViewRole());
   const [campaignList, setCampaignList] = useState<PortalCampaign[]>(liveAuth ? [] : campaignSeed);
   const [folderList, setFolderList] = useState<PortalFolder[]>(liveAuth ? [] : folderSeed);
   const [contentList, setContentList] = useState<PortalContent[]>(liveAuth ? [] : contentSeed);
@@ -327,6 +348,13 @@ export default function PortalClient({
   );
   const [uploadOpen, setUploadOpen] = useState(false);
   const [campaignOpen, setCampaignOpen] = useState(false);
+  const [campaignAccessCampaign, setCampaignAccessCampaign] = useState<PortalCampaign | null>(null);
+  const [campaignAccessOpen, setCampaignAccessOpen] = useState(false);
+  const [campaignMembers, setCampaignMembers] = useState<PortalCampaignMember[]>(
+    liveAuth ? [] : campaignMemberSeed,
+  );
+  const [campaignMembersLoading, setCampaignMembersLoading] = useState(false);
+  const [campaignMemberSaving, setCampaignMemberSaving] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [commentOpen, setCommentOpen] = useState(false);
@@ -398,10 +426,16 @@ export default function PortalClient({
         setContentList(storedState.contentItems);
         setCommentList(storedState.comments);
         setActivityList(storedState.activity);
+        setCampaignMembers(storedState.campaignMembers ?? campaignMemberSeed);
       }
 
       if (!liveAuth) {
-        setSession(readDemoSession());
+        const demoSession = readDemoSession();
+        setSession(demoSession);
+        const restoredViewRole =
+          demoSession?.role === "Creative" ? readStoredViewRole() : demoSession?.role ?? "Creative";
+        setViewRole(restoredViewRole);
+        window.sessionStorage.setItem("approveLyViewRole", restoredViewRole);
       }
 
       setDemoStateReady(true);
@@ -419,13 +453,23 @@ export default function PortalClient({
       "approveLyPortalState",
       JSON.stringify({
         activity: activityList,
+        campaignMembers,
         campaigns: campaignList,
         comments: commentList,
         contentItems: contentList,
         folders: folderList,
       } satisfies DemoPortalState),
     );
-  }, [activityList, campaignList, commentList, contentList, demoStateReady, folderList, liveAuth]);
+  }, [
+    activityList,
+    campaignMembers,
+    campaignList,
+    commentList,
+    contentList,
+    demoStateReady,
+    folderList,
+    liveAuth,
+  ]);
 
   useEffect(() => {
     if (!liveAuth) {
@@ -442,6 +486,7 @@ export default function PortalClient({
         return;
       }
 
+      setViewRole(readStoredViewRole());
       setSession({
         accessToken: data.session.access_token,
         email: data.session.user.email,
@@ -460,10 +505,12 @@ export default function PortalClient({
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!nextSession?.access_token || !nextSession.user.email) {
+        setViewRole(readStoredViewRole());
         setSession(null);
         return;
       }
 
+      setViewRole(readStoredViewRole());
       setSession({
         accessToken: nextSession.access_token,
         email: nextSession.user.email,
@@ -522,6 +569,8 @@ export default function PortalClient({
         role: "Assistant",
         roleConfirmed: true,
       });
+      setViewRole("Assistant");
+      window.sessionStorage.setItem("approveLyViewRole", "Assistant");
 
       const firstCampaign = payload.campaigns[0];
       const firstContent =
@@ -619,7 +668,8 @@ export default function PortalClient({
     window.setTimeout(() => setCelebration(false), 2200);
   };
 
-  const capabilities = session ? roleCapabilities[session.role] : roleCapabilities.Creative;
+  const activeRole = session?.role === "Creative" ? viewRole : session?.role ?? "Creative";
+  const capabilities = session ? roleCapabilities[activeRole] : roleCapabilities.Creative;
   const usesDemoAssignmentRules = !session?.accessToken && session?.role === "Approver";
 
   const companies = useMemo(() => {
@@ -913,6 +963,8 @@ export default function PortalClient({
             }
           : current,
       );
+      setViewRole(response.profile.role);
+      window.sessionStorage.setItem("approveLyViewRole", response.profile.role);
       setWorkspaceLoading(true);
       setWorkspaceSyncing(true);
       setWorkspaceRefreshKey((value) => value + 1);
@@ -926,10 +978,24 @@ export default function PortalClient({
     const nextSession = { ...session, role, roleConfirmed: true };
     window.sessionStorage.setItem("approveLyDemoSession", JSON.stringify(nextSession));
     setSession(nextSession);
+    setViewRole(role);
+    window.sessionStorage.setItem("approveLyViewRole", role);
     setActiveView(role === "Approver" ? "Content to approve" : "Dashboard");
     setRoleSetupSaving(false);
     router.replace("/dashboard");
     notify(`Workspace set up as ${role}`);
+  };
+
+  const handleViewRoleChange = (role: Role) => {
+    if (session?.role !== "Creative") {
+      return;
+    }
+
+    setViewRole(role);
+    window.sessionStorage.setItem("approveLyViewRole", role);
+    setActiveView(role === "Approver" ? "Content to approve" : "Dashboard");
+    router.push(role === "Approver" ? viewRoutes["Content to approve"] : viewRoutes.Dashboard);
+    notify(`Showing ${role} view`, "neutral");
   };
 
   const handleLogin = (nextSession: Session) => {
@@ -938,6 +1004,8 @@ export default function PortalClient({
     }
 
     setSession(nextSession);
+    setViewRole(nextSession.role);
+    window.sessionStorage.setItem("approveLyViewRole", nextSession.role);
     setWorkspaceLoading(Boolean(nextSession.accessToken));
     setWorkspaceSyncing(Boolean(nextSession.accessToken));
     setActiveView(initialCampaignId ? "Campaigns" : "Dashboard");
@@ -961,7 +1029,9 @@ export default function PortalClient({
     }
 
     window.sessionStorage.removeItem("approveLyDemoSession");
+    window.sessionStorage.removeItem("approveLyViewRole");
     setSession(null);
+    setViewRole("Creative");
     setWorkspaceLoading(false);
     setWorkspaceSyncing(false);
     notify("Signed out", "neutral");
@@ -1126,6 +1196,103 @@ export default function PortalClient({
     notify("Campaign created");
   };
 
+  const updateCampaignApproverCount = (campaignId: string, count: number) => {
+    setCampaignList((items) =>
+      items.map((campaign) =>
+        campaign.id === campaignId
+          ? { ...campaign, approvers: `${count} approver${count === 1 ? "" : "s"}` }
+          : campaign,
+      ),
+    );
+  };
+
+  const handleOpenCampaignAccess = async (campaign: PortalCampaign) => {
+    if (session?.role !== "Creative") {
+      notify("Only the Creative owner can manage campaign access.", "warning");
+      return;
+    }
+
+    setCampaignAccessCampaign(campaign);
+    setCampaignAccessOpen(true);
+    setCampaignMembersLoading(true);
+
+    if (session.accessToken) {
+      const saved = await callBackend<{ members: PortalCampaignMember[] }>(
+        `/api/campaigns/${encodeURIComponent(campaign.id)}/members`,
+      );
+
+      if (saved?.members) {
+        setCampaignMembers(saved.members);
+        updateCampaignApproverCount(campaign.id, saved.members.length);
+      }
+
+      setCampaignMembersLoading(false);
+      return;
+    }
+
+    const demoMembers = campaignMembers.filter((member) => member.campaignId === campaign.id);
+    setCampaignMembers(demoMembers);
+    updateCampaignApproverCount(campaign.id, demoMembers.length);
+    setCampaignMembersLoading(false);
+  };
+
+  const handleAddApprover = async (email: string) => {
+    if (!campaignAccessCampaign || session?.role !== "Creative") {
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      notify("Enter the approver's account email.", "warning");
+      return;
+    }
+
+    if (campaignMembers.some((member) => member.email.toLowerCase() === normalizedEmail)) {
+      notify("That approver already has access to this campaign.", "warning");
+      return;
+    }
+
+    setCampaignMemberSaving(true);
+
+    const saved = await callBackend<{ member: PortalCampaignMember }>(
+      `/api/campaigns/${encodeURIComponent(campaignAccessCampaign.id)}/members`,
+      {
+        body: { email: normalizedEmail },
+        method: "POST",
+      },
+    );
+
+    if (saved?.member) {
+      setCampaignMembers((items) => [...items, saved.member]);
+      updateCampaignApproverCount(campaignAccessCampaign.id, campaignMembers.length + 1);
+      addActivity("bell", `${saved.member.name} added to ${campaignAccessCampaign.name}`);
+      notify(`${saved.member.name} can now approve this campaign`);
+      setCampaignMemberSaving(false);
+      return;
+    }
+
+    if (session.accessToken) {
+      setCampaignMemberSaving(false);
+      return;
+    }
+
+    const nextMember: PortalCampaignMember = {
+      campaignId: campaignAccessCampaign.id,
+      email: normalizedEmail,
+      id: `member-${Date.now()}`,
+      name: normalizedEmail.split("@")[0] || "Approver",
+      profileId: `profile-${Date.now()}`,
+      role: "Approver",
+    };
+
+    setCampaignMembers((items) => [...items, nextMember]);
+    updateCampaignApproverCount(campaignAccessCampaign.id, campaignMembers.length + 1);
+    addActivity("bell", `${nextMember.name} added to ${campaignAccessCampaign.name}`);
+    notify(`${nextMember.name} added as campaign approver`);
+    setCampaignMemberSaving(false);
+  };
+
   const handleAddFolder = async (name: string) => {
     if (!requirePermission(capabilities.canCreate, "Only Creatives can create folders.")) {
       return;
@@ -1197,7 +1364,7 @@ export default function PortalClient({
       body: body.trim(),
       contentId: activeItem.id,
       id: `comment-${Date.now()}`,
-      role: session?.role ?? "Approver",
+      role: activeRole,
       status: "Open",
     };
 
@@ -1631,6 +1798,9 @@ export default function PortalClient({
     setContentList(contentSeed);
     setCommentList(commentSeed);
     setActivityList(activitySeed);
+    setCampaignMembers(campaignMemberSeed);
+    setViewRole("Creative");
+    window.sessionStorage.setItem("approveLyViewRole", "Creative");
     setSelectedCompany(campaignSeed[0].company);
     setSelectedCampaign(campaignSeed[0].name);
     setSelectedFolder("All folders");
@@ -1720,7 +1890,7 @@ export default function PortalClient({
       return;
     }
 
-    navigateToView(session?.role === "Approver" ? "Content to approve" : "Campaigns");
+    navigateToView(activeRole === "Approver" ? "Content to approve" : "Campaigns");
   };
 
   const openContent = (item: PortalContent) => {
@@ -1790,11 +1960,13 @@ export default function PortalClient({
       >
         <Sidebar
           activeView={activeView}
+          canSwitchView={session.role === "Creative"}
           onChangeView={navigateToView}
+          onChangeRole={handleViewRoleChange}
           demoMode={!liveAuth}
           onLogout={handleLogout}
           onReset={resetDemo}
-          role={session.role}
+          role={activeRole}
           storageValue={metrics[3].value}
         />
         <section className="flex min-w-0 flex-1 flex-col gap-4">
@@ -1873,7 +2045,7 @@ export default function PortalClient({
                         setUploadOpen(true);
                       }
                     }}
-                    role={session.role}
+                    role={activeRole}
                   />
                   {projectStage === "campaign" ? (
                     <CampaignOverviewPage
@@ -1884,6 +2056,11 @@ export default function PortalClient({
                       onAddFolder={() => {
                         if (requirePermission(capabilities.canCreate, "Only Creatives can create folders.")) {
                           setFolderOpen(true);
+                        }
+                      }}
+                      onManageApprovers={() => {
+                        if (currentProject) {
+                          void handleOpenCampaignAccess(currentProject);
                         }
                       }}
                       onDelete={
@@ -1953,7 +2130,7 @@ export default function PortalClient({
                         setUploadOpen(true);
                       }
                     }}
-                    role={session.role}
+                    role={activeRole}
                     selectedCompany={selectedCompany}
                   />
                   <DashboardGrid metrics={metrics} />
@@ -1962,7 +2139,7 @@ export default function PortalClient({
                     onOpenTalent={openTalent}
                     onOpenView={navigateToView}
                     onShowAllContent={showAllTalentContent}
-                    role={session.role}
+                    role={activeRole}
                   />
                   <DashboardDueHeatmap contentItems={accessibleContent} onOpenContent={openContent} />
                   <DashboardHome
@@ -1990,7 +2167,7 @@ export default function PortalClient({
                     }
                   }}
                   onOpenCampaign={openProject}
-                  role={session.role}
+                  role={activeRole}
                 />
               ) : null}
               {activeView === "Comments received" ? (
@@ -2045,7 +2222,7 @@ export default function PortalClient({
                   campaigns={accessibleCampaigns}
                   contentItems={accessibleContent}
                   name={session.name}
-                  role={session.role}
+                  role={activeRole}
                   onOpenCampaign={openProject}
                 />
               ) : null}
@@ -2115,6 +2292,17 @@ export default function PortalClient({
             handleAddCampaign(name, company, due);
             setCampaignOpen(false);
           }}
+        />
+      ) : null}
+
+      {campaignAccessOpen && campaignAccessCampaign ? (
+        <CampaignAccessModal
+          campaign={campaignAccessCampaign}
+          loading={campaignMembersLoading}
+          members={campaignMembers}
+          onAdd={(email) => void handleAddApprover(email)}
+          onClose={() => setCampaignAccessOpen(false)}
+          saving={campaignMemberSaving}
         />
       ) : null}
 
@@ -2724,6 +2912,7 @@ function CampaignOverviewPage({
   folders,
   onAddFolder,
   onDelete,
+  onManageApprovers,
   onOpenFolder,
   onUpload,
 }: {
@@ -2733,6 +2922,7 @@ function CampaignOverviewPage({
   folders: PortalFolder[];
   onAddFolder: () => void;
   onDelete?: () => void;
+  onManageApprovers: () => void;
   onOpenFolder: (folder: PortalFolder) => void;
   onUpload: () => void;
 }) {
@@ -2788,7 +2978,21 @@ function CampaignOverviewPage({
         )}
       </Panel>
 
-      <Panel title="Campaign status">
+      <Panel
+        title="Campaign status"
+        action={
+          canCreate ? (
+            <button
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-zinc-400"
+              onClick={onManageApprovers}
+              type="button"
+            >
+              <Users aria-hidden className="size-3.5" />
+              Add approver
+            </button>
+          ) : null
+        }
+      >
         <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
           <MiniStat label="Content items" value={String(contentItems.length)} />
           <MiniStat label="Awaiting approval" value={String(pending)} />
@@ -3359,9 +3563,30 @@ function AccessRow({ enabled, label }: { enabled: boolean; label: string }) {
   );
 }
 
+function ViewSwitcher({ onChange, role }: { onChange: (role: Role) => void; role: Role }) {
+  return (
+    <label className="relative inline-flex h-9 max-w-40 items-center rounded-md border border-zinc-200 bg-white px-2 text-xs font-semibold text-zinc-700">
+      <span className="sr-only">Switch workspace view</span>
+      <select
+        aria-label="Switch workspace view"
+        className="min-w-0 appearance-none bg-transparent pr-5 outline-none"
+        onChange={(event) => onChange(event.target.value as Role)}
+        value={role}
+      >
+        <option value="Creative">Creative view</option>
+        <option value="Approver">Approver view</option>
+        <option value="Assistant">Assistant view</option>
+      </select>
+      <ChevronDown aria-hidden className="pointer-events-none absolute right-2 size-3.5 text-zinc-400" />
+    </label>
+  );
+}
+
 function Sidebar({
   activeView,
+  canSwitchView,
   demoMode,
+  onChangeRole,
   onChangeView,
   onLogout,
   onReset,
@@ -3369,7 +3594,9 @@ function Sidebar({
   storageValue,
 }: {
   activeView: View;
+  canSwitchView: boolean;
   demoMode: boolean;
+  onChangeRole: (role: Role) => void;
   onChangeView: (view: View) => void;
   onLogout: () => void;
   onReset: () => void;
@@ -3406,7 +3633,11 @@ function Sidebar({
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">Approve.ly</p>
-            <p className="truncate text-xs text-zinc-500">{role} workspace</p>
+            {canSwitchView ? (
+              <ViewSwitcher onChange={onChangeRole} role={role} />
+            ) : (
+              <p className="truncate text-xs text-zinc-500">{role} workspace</p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -3444,7 +3675,7 @@ function Sidebar({
             <p className="truncate text-xs text-zinc-500">{role} view</p>
           </div>
         </div>
-        <ChevronDown aria-hidden className="size-4 shrink-0 text-zinc-500" />
+        {canSwitchView ? <ViewSwitcher onChange={onChangeRole} role={role} /> : <ChevronDown aria-hidden className="size-4 shrink-0 text-zinc-500" />}
       </div>
 
       <nav className="grid gap-1" aria-label="Primary">
@@ -5000,6 +5231,91 @@ function CampaignModal({
   );
 }
 
+function CampaignAccessModal({
+  campaign,
+  loading,
+  members,
+  onAdd,
+  onClose,
+  saving,
+}: {
+  campaign: PortalCampaign;
+  loading: boolean;
+  members: PortalCampaignMember[];
+  onAdd: (email: string) => void;
+  onClose: () => void;
+  saving: boolean;
+}) {
+  const [email, setEmail] = useState("");
+
+  return (
+    <Modal onClose={onClose} title={`Campaign access · ${campaign.name}`}>
+      <div className="grid gap-4">
+        <div className="rounded-md border border-blue-100 bg-blue-50 p-3 text-sm leading-5 text-blue-900">
+          Add an Approve.ly account by email. They will see this campaign in their Approver workspace and can review, comment, and approve its content.
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-zinc-900">Assigned approvers</p>
+            <span className="text-xs font-semibold text-zinc-500">{members.length} assigned</span>
+          </div>
+          <div className="mt-2 grid max-h-44 gap-2 overflow-y-auto">
+            {loading ? (
+              <div className="rounded-md border border-dashed border-zinc-200 bg-zinc-50 p-4 text-center text-sm text-zinc-500">
+                Loading campaign access...
+              </div>
+            ) : members.length ? (
+              members.map((member) => (
+                <div className="flex items-center gap-3 rounded-md border border-zinc-200 bg-white p-3" key={member.id}>
+                  <span className="grid size-9 shrink-0 place-items-center rounded-md bg-zinc-950 text-xs font-semibold text-white">
+                    {initials(member.name)}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-zinc-900">{member.name}</p>
+                    <p className="truncate text-xs text-zinc-500">{member.email}</p>
+                  </div>
+                  <span className="ml-auto rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">
+                    Approver
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-md border border-dashed border-zinc-200 bg-zinc-50 p-4 text-center text-sm text-zinc-500">
+                No approvers assigned yet.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <form
+          className="grid gap-3 border-t border-zinc-200 pt-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onAdd(email);
+            setEmail("");
+          }}
+        >
+          <TextInput
+            label="Approver account email"
+            onChange={setEmail}
+            placeholder="approver@company.com"
+            value={email}
+          />
+          <button
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-wait disabled:opacity-60"
+            disabled={saving || loading}
+            type="submit"
+          >
+            <Users aria-hidden className="size-4" />
+            {saving ? "Granting access..." : "Give campaign access"}
+          </button>
+        </form>
+      </div>
+    </Modal>
+  );
+}
+
 function FolderModal({
   onClose,
   onSubmit,
@@ -5250,6 +5566,18 @@ function readDemoSession(): Session | null {
     window.sessionStorage.removeItem("approveLyDemoSession");
     return null;
   }
+}
+
+function readStoredViewRole(): Role {
+  if (typeof window === "undefined") {
+    return "Creative";
+  }
+
+  const storedRole = window.sessionStorage.getItem("approveLyViewRole");
+
+  return storedRole === "Approver" || storedRole === "Assistant" || storedRole === "Creative"
+    ? storedRole
+    : "Creative";
 }
 
 function readDemoState(): DemoPortalState | null {

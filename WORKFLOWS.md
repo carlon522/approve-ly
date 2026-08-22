@@ -28,6 +28,15 @@
 3. The server fetches independent workspace slices in parallel and uses the content result to derive folder counts.
 4. The fresh response replaces the cached snapshot and records no demo data in live mode.
 
+## Campaign Approver Assignment
+
+1. A Creative opens a campaign and selects Add approver from Campaign status.
+2. The portal loads the current Approver assignments for that campaign.
+3. The Creative enters the email of an existing Approve.ly account confirmed as Approver.
+4. The server validates Creative ownership capability, finds the profile, and upserts the `campaign_members` assignment.
+5. The assigned user sees the campaign in their Approver workspace after the next workspace refresh.
+6. Duplicate assignments are rejected in the interface and remain idempotent at the database boundary.
+
 ## Commenting
 
 1. Reviewer opens content detail.

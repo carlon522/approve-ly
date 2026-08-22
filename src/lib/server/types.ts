@@ -21,6 +21,15 @@ export type PortalCampaign = {
   progress: number;
 };
 
+export type PortalCampaignMember = {
+  campaignId: string;
+  email: string;
+  id: string;
+  name: string;
+  profileId: string;
+  role: Role;
+};
+
 export type PortalFolder = {
   id: string;
   name: string;

@@ -15,6 +15,7 @@ import type {
   CreateContentInput,
   PortalActivity,
   PortalCampaign,
+  PortalCampaignMember,
   PortalComment,
   PortalContent,
   PortalFolder,
@@ -143,6 +144,150 @@ export async function getBootstrap(profile: Profile): Promise<BootstrapPayload> 
     contentItems: contentItems.map((item) => mapContent(item, campaignMap, companyMap)),
     folders,
     profile,
+  };
+}
+
+export async function listCampaignMembers(
+  profile: Profile,
+  campaignId: string,
+): Promise<PortalCampaignMember[]> {
+  assertCanCreate(profile);
+
+  const supabase = getSupabaseAdmin();
+  const { data: campaign, error: campaignError } = await supabase
+    .from("campaigns")
+    .select("id")
+    .eq("id", campaignId)
+    .maybeSingle();
+
+  if (campaignError || !campaign) {
+    throw new ApiError(campaignError?.message ?? "Campaign not found.", 404);
+  }
+
+  const { data: memberRows, error: memberError } = await supabase
+    .from("campaign_members")
+    .select("id,campaign_id,profile_id,role")
+    .eq("campaign_id", campaign.id)
+    .eq("role", "Approver")
+    .order("created_at", { ascending: true });
+
+  if (memberError) {
+    throw new ApiError(memberError.message, 500);
+  }
+
+  const rows = (memberRows ?? []) as Array<{
+    campaign_id: string;
+    id: string;
+    profile_id: string;
+    role: Role;
+  }>;
+
+  if (!rows.length) {
+    return [];
+  }
+
+  const { data: profiles, error: profileError } = await supabase
+    .from("profiles")
+    .select("id,email,name")
+    .in("id", rows.map((row) => row.profile_id));
+
+  if (profileError) {
+    throw new ApiError(profileError.message, 500);
+  }
+
+  const profileMap = new Map(
+    (profiles ?? []).map((member) => [
+      member.id,
+      { email: member.email, id: member.id, name: member.name },
+    ]),
+  );
+
+  return rows.flatMap((row) => {
+    const member = profileMap.get(row.profile_id);
+
+    return member
+      ? [
+          {
+            campaignId: row.campaign_id,
+            email: member.email,
+            id: row.id,
+            name: member.name,
+            profileId: member.id,
+            role: "Approver" as Role,
+          },
+        ]
+      : [];
+  });
+}
+
+export async function addCampaignApprover(
+  profile: Profile,
+  campaignId: string,
+  email: string,
+): Promise<PortalCampaignMember> {
+  assertCanCreate(profile);
+
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (!normalizedEmail) {
+    throw new ApiError("Enter the approver's account email.", 400);
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data: campaign, error: campaignError } = await supabase
+    .from("campaigns")
+    .select("id,name")
+    .eq("id", campaignId)
+    .maybeSingle();
+
+  if (campaignError || !campaign) {
+    throw new ApiError(campaignError?.message ?? "Campaign not found.", 404);
+  }
+
+  const { data: target, error: targetError } = await supabase
+    .from("profiles")
+    .select("id,email,name,role")
+    .ilike("email", normalizedEmail)
+    .maybeSingle();
+
+  if (targetError) {
+    throw new ApiError(targetError.message, 500);
+  }
+
+  if (!target) {
+    throw new ApiError("No Approve.ly account was found for that email. Ask them to create an account first.", 404);
+  }
+
+  if (target.role !== "Approver") {
+    throw new ApiError("That account is not set up as an Approver yet.", 400);
+  }
+
+  const { data: member, error: memberError } = await supabase
+    .from("campaign_members")
+    .upsert(
+      {
+        campaign_id: campaign.id,
+        profile_id: target.id,
+        role: "Approver",
+      },
+      { onConflict: "campaign_id,profile_id" },
+    )
+    .select("id,campaign_id,profile_id,role")
+    .single();
+
+  if (memberError || !member) {
+    throw new ApiError(memberError?.message ?? "Unable to grant campaign access.", 500);
+  }
+
+  await logActivity("bell", `${target.name} added to ${campaign.name} as an Approver`);
+
+  return {
+    campaignId: member.campaign_id,
+    email: target.email,
+    id: member.id,
+    name: target.name,
+    profileId: target.id,
+    role: "Approver",
   };
 }
 
