@@ -7,6 +7,7 @@ Approve.ly is an operational SaaS tool, not a marketing site. The interface shou
 - Neutral foundation with crisp white surfaces, ink text, soft gray borders, and restrained accent colors.
 - Avoid one-hue palettes and large decorative gradients.
 - Cards are for repeated items, modals, and framed tools only.
+- Use soft, border-light surfaces with quiet shadows for dashboard sections; reserve strong borders for controls, content rows, and state changes.
 - Keep border radius at 8px or less for cards and controls unless a specific component needs round media.
 - Use stable dimensions for thumbnails, platform previews, toolbar buttons, status chips, and counters.
 

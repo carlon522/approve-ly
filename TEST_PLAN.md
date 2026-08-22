@@ -49,6 +49,7 @@
 - Upload form has no manual type selector; MP4/MOV/WebM files show Video detected, image files show Image detected, unsupported files show a clear error and disable Upload, and optional tags stay collapsed until opened.
 - Talent input filters existing names while typing, commits an existing match with Tab, locks the tag after commit, and labels unmatched text as `Adding new talent`.
 - Dashboard renders at mobile, tablet, and desktop sizes.
+- Dashboard surfaces use soft panel separation without heavy rectangular outlines; metric icons remain visually distinct and circular at mobile and desktop widths.
 - Mobile pages emit a fixed responsive viewport with `initial-scale=1`, `maximum-scale=1`, and `user-scalable=no` so browser zoom cannot change the app layout.
 - Mobile app shell keeps the bottom navigation fixed, clears page content, and preserves sign-out/reset actions in the sticky header.
 - Mobile navigation maps to the correct role-specific destinations and uses full accessible names for shortened labels.

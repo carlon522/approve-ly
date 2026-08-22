@@ -4235,13 +4235,13 @@ function MetricCard({
   };
 }) {
   return (
-    <article className="rounded-lg border border-[#dedbd2] bg-white p-4 shadow-sm">
+    <article className="rounded-lg border-0 bg-white/90 p-4 shadow-[0_10px_30px_-26px_rgba(24,24,27,0.7)]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-zinc-500">{metric.label}</p>
           <p className="mt-2 text-3xl font-semibold text-zinc-950">{metric.value}</p>
         </div>
-        <div className={`grid size-10 place-items-center rounded-md border ${metricToneStyles[metric.tone]}`}>
+        <div className={`grid size-10 place-items-center rounded-full border ${metricToneStyles[metric.tone]}`}>
           <metric.icon aria-hidden className="size-5" />
         </div>
       </div>
@@ -5732,7 +5732,7 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="min-w-0 rounded-lg border border-[#dedbd2] bg-white p-3 shadow-sm sm:p-4">
+    <section className="min-w-0 rounded-lg border-0 bg-white/90 p-3 shadow-[0_10px_30px_-26px_rgba(24,24,27,0.7)] sm:p-4">
       <div className="mb-3 flex min-h-10 items-center justify-between gap-3">
         <h2 className="text-base font-semibold text-zinc-950">{title}</h2>
         {action}
