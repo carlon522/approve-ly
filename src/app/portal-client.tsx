@@ -2543,7 +2543,6 @@ export default function PortalClient({
 
       <ToastStack toasts={toasts} />
 
-      {workspaceSyncing ? <WorkspaceSyncToast /> : null}
       {celebration ? <ConfettiBurst /> : null}
 
       {uploadOpen ? (
@@ -3470,20 +3469,6 @@ function ApprovalHeader({
         {item ? <StatusBadge status={item.status} /> : null}
       </div>
     </header>
-  );
-}
-
-function WorkspaceSyncToast() {
-  return (
-    <div className="fixed bottom-24 right-3 z-50 w-[min(360px,calc(100vw-24px))] rounded-lg border border-blue-200 bg-white/95 p-3 shadow-lg backdrop-blur sm:bottom-3" role="status">
-      <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
-        <Clock3 aria-hidden className="size-4 animate-pulse" />
-        Syncing workspace data
-      </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-blue-100" role="progressbar" aria-label="Syncing workspace">
-        <div className="h-full w-2/3 animate-pulse rounded-full bg-blue-600" />
-      </div>
-    </div>
   );
 }
 

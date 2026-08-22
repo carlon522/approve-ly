@@ -26,7 +26,7 @@
 
 1. Authenticated users receive the last workspace snapshot from the current browser session when it is still fresh.
 2. The portal renders its authenticated shell immediately, uses the snapshot when available, and refreshes it in the background.
-3. During a cold bootstrap, controls remain protected until the profile and permissions resolve while a compact sync toast reports progress; the route is never replaced by a blocking loading page.
+3. During a cold bootstrap, controls remain protected until the profile and permissions resolve while the refresh runs silently; the route is never replaced by a blocking loading page or popup.
 4. The server fetches independent workspace slices in parallel and uses the content result to derive folder counts.
 5. The fresh response replaces the cached snapshot and records no demo data in live mode.
 
