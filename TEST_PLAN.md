@@ -12,6 +12,7 @@
 - Reminder policy inheritance.
 - Storage usage calculations.
 - Structured due date normalization preserves the selected date/time and uses legacy labels only as a fallback.
+- Content stats invariants: status buckets include all content types, bucket totals equal visible content totals, and completion percentage equals approved plus archive-scheduled content divided by total.
 
 ## Integration Tests
 
@@ -39,6 +40,8 @@
 - Campaign status exposes Add approver for Creatives, shows assigned approvers, loading, duplicate, and invalid-account states.
 - Folder creation keeps its modal open during saving, disables duplicate submits, renders an empty folder immediately, persists it after refresh, and treats duplicate names as an existing folder.
 - Campaign pages show assigned approvers in a dedicated Campaign team panel; Add approver remains Creative-only.
+- Campaign header total, status split, campaign status panel, dashboard project progress, dashboard metrics, and account summary agree for the same campaign content set.
+- Campaign counts remain correct when content is an image or carousel, and archive-scheduled content remains included in approved totals.
 - Dashboard deadline heat map renders late, close, on-time, and completed states with the correct red/green intensity; hover and focus reveal the content due details.
 - Dashboard heat map month controls remain usable at mobile width and clicking a marked day opens its most urgent content.
 - Upload and campaign due date controls open a native date/time picker; creating either record sends a structured `dueAt` value.

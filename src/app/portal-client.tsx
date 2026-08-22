@@ -65,6 +65,7 @@ import {
   createBrowserSupabaseClient,
   isSupabaseBrowserConfigured,
 } from "@/lib/supabase/browser";
+import { getContentStats } from "@/lib/content-stats";
 import type { BootstrapPayload, PortalCampaignMember, Profile } from "@/lib/server/types";
 
 type Role = "Creative" | "Approver" | "Assistant";
@@ -766,6 +767,30 @@ export default function PortalClient({
     [capabilities.assignedCampaigns, contentList, usesDemoAssignmentRules],
   );
 
+  const campaignsForDisplay = useMemo(
+    () =>
+      campaignList.map((campaign) => {
+        const contentStats = getContentStats(
+          accessibleContent.filter(
+            (item) => item.campaign === campaign.name && item.company === campaign.company,
+          ),
+        );
+
+        return contentStats.total
+          ? { ...campaign, progress: contentStats.completionRate }
+          : campaign;
+      }),
+    [accessibleContent, campaignList],
+  );
+  const visibleCampaignsForDisplay = useMemo(
+    () => visibleCampaigns.map((campaign) => campaignsForDisplay.find((item) => item.id === campaign.id) ?? campaign),
+    [campaignsForDisplay, visibleCampaigns],
+  );
+  const accessibleCampaignsForDisplay = useMemo(
+    () => accessibleCampaigns.map((campaign) => campaignsForDisplay.find((item) => item.id === campaign.id) ?? campaign),
+    [accessibleCampaigns, campaignsForDisplay],
+  );
+
   const pendingContent = useMemo(
     () =>
       accessibleContent.filter((item) =>
@@ -789,6 +814,9 @@ export default function PortalClient({
     : visibleCampaigns[0]?.name ?? selectedCampaign;
 
   const currentProject = campaignList.find(
+    (campaign) => campaign.id === (projectId ?? ""),
+  );
+  const currentProjectForDisplay = campaignsForDisplay.find(
     (campaign) => campaign.id === (projectId ?? ""),
   );
   const isProjectPage = Boolean(projectId);
@@ -918,11 +946,8 @@ export default function PortalClient({
   );
 
   const metrics = useMemo(() => {
-    const pending = accessibleContent.filter((item) =>
-      ["Submitted", "In Review", "Changes Requested"].includes(item.status),
-    ).length;
+    const contentStats = getContentStats(accessibleContent);
     const openComments = commentList.filter((comment) => comment.status === "Open").length;
-    const approved = accessibleContent.filter((item) => item.status === "Approved").length;
     const storedItems = accessibleContent.filter((item) => item.storageKey);
     const storageBytes = storedItems.reduce((total, item) => total + sizeToBytes(item.size), 0);
 
@@ -932,7 +957,7 @@ export default function PortalClient({
         icon: Clock3,
         label: "Pending approval",
         tone: "blue" as const,
-        value: String(pending),
+        value: String(contentStats.awaitingApproval),
       },
       {
         detail: `${commentList.length} comments total`,
@@ -946,7 +971,7 @@ export default function PortalClient({
         icon: CheckCircle2,
         label: "Approved",
         tone: "green" as const,
-        value: String(approved),
+        value: String(contentStats.approved),
       },
       {
         detail: storedItems.length
@@ -2191,7 +2216,7 @@ export default function PortalClient({
         <section className={`flex min-w-0 flex-1 flex-col ${immersiveApproval ? "gap-0" : "gap-4"}`}>
           {!immersiveApproval ? (
             <WorkspaceTopBar
-              campaigns={accessibleCampaigns}
+              campaigns={accessibleCampaignsForDisplay}
               companies={companies}
               onCampaignChange={handleWorkspaceCampaignChange}
               onCompanyChange={handleWorkspaceCompanyChange}
@@ -2206,7 +2231,7 @@ export default function PortalClient({
                 <>
                   {!immersionMode ? (
                     <ApprovalHeader
-                      campaign={currentProject ?? visibleCampaigns[0]}
+                      campaign={currentProjectForDisplay ?? visibleCampaignsForDisplay[0]}
                       folder={currentFolder}
                       item={activeItem}
                       onBack={backToFolder}
@@ -2261,7 +2286,7 @@ export default function PortalClient({
                 <>
                   <ProjectHeader
                     canCreate={capabilities.canCreate}
-                    campaign={currentProject ?? visibleCampaigns[0]}
+                    campaign={currentProjectForDisplay ?? visibleCampaignsForDisplay[0]}
                     contentItems={projectContent}
                     name={session.name}
                     onDelete={
@@ -2374,7 +2399,7 @@ export default function PortalClient({
                   <DashboardDueHeatmap contentItems={accessibleContent} onOpenContent={openContent} />
                   <DashboardHome
                     activeView="Dashboard"
-                    campaigns={visibleCampaigns}
+                    campaigns={visibleCampaignsForDisplay}
                     canCreate={capabilities.canCreate}
                     onAddCampaign={() => {
                       if (requirePermission(capabilities.canCreate, "Only Creatives can create campaigns.")) {
@@ -2389,7 +2414,7 @@ export default function PortalClient({
               ) : null}
               {activeView === "Campaigns" ? (
                 <CampaignsPage
-                  campaigns={accessibleCampaigns}
+                  campaigns={accessibleCampaignsForDisplay}
                   canCreate={capabilities.canCreate}
                   onAddCampaign={() => {
                     if (requirePermission(capabilities.canCreate, "Only Creatives can create campaigns.")) {
@@ -2449,7 +2474,7 @@ export default function PortalClient({
               ) : null}
               {activeView === "Account" ? (
                 <AccountPage
-                  campaigns={accessibleCampaigns}
+                  campaigns={accessibleCampaignsForDisplay}
                   contentItems={accessibleContent}
                   email={session.email}
                   name={session.name}
@@ -3112,12 +3137,13 @@ function ProjectHeader({
   onNewUpload: () => void;
   role: Role;
 }) {
-  const videoItems = contentItems.filter((item) => item.type === "Video");
+  const contentStats = getContentStats(contentItems);
+  const progress = contentStats.total ? contentStats.completionRate : campaign?.progress ?? 0;
   const statusBreakdown: Array<{ label: string; status: Status; count: number }> = [
-    { count: videoItems.filter((item) => item.status === "Submitted").length, label: "Submitted", status: "Submitted" },
-    { count: videoItems.filter((item) => item.status === "In Review").length, label: "In review", status: "In Review" },
-    { count: videoItems.filter((item) => item.status === "Changes Requested").length, label: "Changes", status: "Changes Requested" },
-    { count: videoItems.filter((item) => ["Approved", "Archive Scheduled"].includes(item.status)).length, label: "Approved", status: "Approved" },
+    { count: contentStats.submitted, label: "Submitted", status: "Submitted" },
+    { count: contentStats.inReview, label: "In review", status: "In Review" },
+    { count: contentStats.changesRequested, label: "Changes", status: "Changes Requested" },
+    { count: contentStats.approved, label: "Approved", status: "Approved" },
   ];
 
   return (
@@ -3164,14 +3190,14 @@ function ProjectHeader({
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-3 text-xs font-semibold text-zinc-500">
               <span>Project progress</span>
-              <span>{campaign.progress}%</span>
+              <span>{progress}%</span>
             </div>
-            <ProgressBar value={campaign.progress} className="mt-2" />
+            <ProgressBar value={progress} className="mt-2" />
           </div>
           <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
             <div className="flex items-center justify-between gap-3 text-xs font-semibold text-zinc-500">
-              <span>Total videos</span>
-              <span className="text-base text-zinc-950">{videoItems.length}</span>
+              <span>Total content</span>
+              <span className="text-base text-zinc-950">{contentStats.total}</span>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {statusBreakdown.map((entry) => (
@@ -3183,6 +3209,9 @@ function ProjectHeader({
                 </span>
               ))}
             </div>
+            <p className="mt-2 text-xs text-zinc-500">
+              {contentStats.videos} video{contentStats.videos === 1 ? "" : "s"} · {contentStats.images} image{contentStats.images === 1 ? "" : "s"} · {contentStats.carousels} carousel{contentStats.carousels === 1 ? "" : "s"}
+            </p>
             <p className="mt-2 text-xs text-zinc-500">{campaign.approvers}</p>
           </div>
         </div>
@@ -3216,12 +3245,8 @@ function CampaignOverviewPage({
   teamLoading: boolean;
   teamMembers: PortalCampaignMember[];
 }) {
-  const pending = contentItems.filter((item) =>
-    ["Submitted", "In Review", "Changes Requested"].includes(item.status),
-  ).length;
-  const approved = contentItems.filter((item) =>
-    ["Approved", "Archive Scheduled"].includes(item.status),
-  ).length;
+  const contentStats = getContentStats(contentItems);
+  const progress = contentStats.total ? contentStats.completionRate : campaign?.progress ?? 0;
 
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
@@ -3271,16 +3296,16 @@ function CampaignOverviewPage({
       <div className="grid gap-4">
         <Panel title="Campaign status">
           <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-            <MiniStat label="Content items" value={String(contentItems.length)} />
-            <MiniStat label="Awaiting approval" value={String(pending)} />
-            <MiniStat label="Approved" value={String(approved)} />
+            <MiniStat label="Content items" value={String(contentStats.total)} />
+            <MiniStat label="Awaiting approval" value={String(contentStats.awaitingApproval)} />
+            <MiniStat label="Approved" value={String(contentStats.approved)} />
           </div>
           <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
             <div className="flex items-center justify-between gap-3 text-sm font-semibold">
               <span>{campaign?.name ?? "Campaign"}</span>
-              <span>{campaign?.progress ?? 0}%</span>
+              <span>{progress}%</span>
             </div>
-            <ProgressBar value={campaign?.progress ?? 0} className="mt-3" />
+            <ProgressBar value={progress} className="mt-3" />
             <p className="mt-2 text-xs text-zinc-500">Due {campaign?.due ?? "No due date"}</p>
           </div>
         </Panel>
@@ -3825,10 +3850,7 @@ function AccountPage({
   role: Role;
 }) {
   const capabilities = roleCapabilities[role];
-  const pending = contentItems.filter((item) =>
-    ["Submitted", "In Review", "Changes Requested"].includes(item.status),
-  ).length;
-  const approved = contentItems.filter((item) => item.status === "Approved").length;
+  const contentStats = getContentStats(contentItems);
 
   return (
     <>
@@ -3867,8 +3889,8 @@ function AccountPage({
         <Panel title="Your workspace">
           <div className="grid gap-3 sm:grid-cols-3">
             <MiniStat label="Assigned campaigns" value={String(campaigns.length)} />
-            <MiniStat label="Awaiting review" value={String(pending)} />
-            <MiniStat label="Approved" value={String(approved)} />
+            <MiniStat label="Awaiting review" value={String(contentStats.awaitingApproval)} />
+            <MiniStat label="Approved" value={String(contentStats.approved)} />
           </div>
           <div className="mt-4 grid gap-2">
             {campaigns.map((campaign) => (

@@ -103,6 +103,12 @@ Talent/influencer labels behave like content tags: existing names are searchable
 - Late, running-close, and on-time summaries count open approvals only. Approved and archive-scheduled content remains visible as completed green markers.
 - New campaign and content deadlines use a structured `due_at` timestamp selected with a calendar/date-time control; the legacy display label remains for readable history.
 
+## Consistent Workspace Counts
+
+- Campaign status counts include every visible content type: video, image, and carousel.
+- Submitted, In Review, Changes Requested, and Approved counts (with Archive Scheduled included in Approved) sum to the campaign's total content count.
+- Campaign progress is derived from approved content divided by total visible content, so it stays aligned with dashboard and account summaries.
+
 ## Immersion Approval Mode
 
 - Content approval can switch into a full-screen, mobile-first immersion feed.

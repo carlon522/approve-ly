@@ -29,6 +29,13 @@
 3. The server fetches independent workspace slices in parallel and uses the content result to derive folder counts.
 4. The fresh response replaces the cached snapshot and records no demo data in live mode.
 
+## Count Consistency
+
+1. The client derives campaign status counts from the same visible content list used by the campaign overview.
+2. Video, image, and carousel items are all included in campaign totals and status buckets.
+3. Approved and archive-scheduled items count as completed.
+4. Progress is the rounded completed-content percentage and is reused by campaign, dashboard, and account surfaces.
+
 ## Workspace Context
 
 1. The top bar exposes the companies and campaigns available to the current role from every non-immersive screen.
