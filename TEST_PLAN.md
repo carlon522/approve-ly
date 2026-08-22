@@ -5,6 +5,8 @@
 - Permission capability checks.
 - Status transition rules.
 - Approval blocked by unresolved comments.
+- Approved content can be unapproved by Creative and assigned Approver users.
+- Unapproving archive-scheduled content clears its archive deletion date.
 - Share link expiry and access mode.
 - Archive scheduling date math.
 - Reminder policy inheritance.
@@ -14,6 +16,7 @@
 
 - Creative creates company, campaign, folder, and content item.
 - Approver assigned to campaign can comment and approve.
+- Creative can delete content from the approval page; Assistants cannot.
 - Assistant can view and download but cannot comment or approve.
 - Public link works before expiry and fails after expiry.
 - Private link requires login.

@@ -41,6 +41,15 @@
 8. Creatives are notified immediately.
 9. Activity log records approval.
 
+## Unapproval and Deletion
+
+1. A Creative or assigned Approver opens approved content.
+2. Unapprove clears the approval timestamp and returns the item to `In Review`.
+3. If open comments remain, the item returns to `Changes Requested` instead.
+4. Unapproving an archive-scheduled item also cancels its deletion hold.
+5. A Creative can choose Delete content from the review header.
+6. The confirmation permanently removes the stored file, content record, and related comments while logging the action.
+
 ## Revision
 
 1. Creative chooses Create Revision on approved or changes requested content.

@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { getAppBaseUrl, isStorageConfigured } from "./env";
 import { ApiError } from "./http";
-import { assertCanApprove, assertCanArchive, assertCanComment, assertCanCreate } from "./permissions";
+import {
+  assertCanApprove,
+  assertCanArchive,
+  assertCanComment,
+  assertCanCreate,
+  assertCanUnapprove,
+} from "./permissions";
 import { createDownloadUrl, deleteStoredObject } from "./storage";
 import { getSupabaseAdmin } from "./supabase";
 import type {
@@ -330,6 +336,7 @@ export async function deleteContent(profile: Profile, contentId: string) {
   assertCanCreate(profile);
 
   const content = await getContentRow(contentId);
+  await assertContentAccess(profile, content);
 
   if (content.storage_key && isStorageConfigured()) {
     await deleteStoredObject(content.storage_key);
@@ -550,6 +557,41 @@ export async function approveContent(profile: Profile, contentId: string) {
   }
 
   await logActivity("check", `${data.title} approved`);
+  return mapContentWithLookups(data);
+}
+
+export async function unapproveContent(profile: Profile, contentId: string) {
+  assertCanUnapprove(profile);
+
+  const content = await getContentRow(contentId);
+  await assertContentAccess(profile, content);
+
+  if (content.status !== "Approved" && content.status !== "Archive Scheduled") {
+    throw new ApiError("Only approved content can be unapproved.", 409);
+  }
+
+  if (content.status === "Archive Scheduled" && !content.storage_key) {
+    throw new ApiError("This archived media has already been deleted and cannot be unapproved.", 409);
+  }
+
+  const nextStatus = (content.unresolved_count ?? 0) > 0 ? "Changes Requested" : "In Review";
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("content_items")
+    .update({
+      approved_at: null,
+      archive_delete_at: null,
+      status: nextStatus,
+    })
+    .eq("id", contentId)
+    .select(contentSelect)
+    .single();
+
+  if (error) {
+    throw new ApiError(error.message, 500);
+  }
+
+  await logActivity("bell", `${data.title} unapproved`);
   return mapContentWithLookups(data);
 }
 

@@ -33,6 +33,7 @@ import {
   Share2,
   ShieldCheck,
   Trash2,
+  Undo2,
   Upload,
   Users,
   X,
@@ -186,6 +187,7 @@ const roleCapabilities: Record<
   {
     canCreate: boolean;
     canApprove: boolean;
+    canUnapprove: boolean;
     canComment: boolean;
     canArchive: boolean;
     assignedCampaigns?: string[];
@@ -194,6 +196,7 @@ const roleCapabilities: Record<
   Creative: {
     canArchive: true,
     canApprove: true,
+    canUnapprove: true,
     canComment: true,
     canCreate: true,
   },
@@ -201,12 +204,14 @@ const roleCapabilities: Record<
     assignedCampaigns: ["Q3 Launch"],
     canArchive: false,
     canApprove: true,
+    canUnapprove: true,
     canComment: true,
     canCreate: false,
   },
   Assistant: {
     canArchive: false,
     canApprove: false,
+    canUnapprove: false,
     canComment: false,
     canCreate: false,
   },
@@ -1264,6 +1269,71 @@ export default function PortalClient({
     }
   };
 
+  const handleUnapprove = async () => {
+    if (!activeItem || approvalPending) {
+      return;
+    }
+
+    if (!requirePermission(capabilities.canUnapprove, "Assistant view is read-only.")) {
+      return;
+    }
+
+    if (activeItem.status !== "Approved" && activeItem.status !== "Archive Scheduled") {
+      notify("Only approved content can be unapproved.", "warning");
+      return;
+    }
+
+    setApprovalPending(true);
+
+    try {
+      const saved = await callBackend<{ item: PortalContent }>(
+        `/api/content/${activeItem.id}/unapprove`,
+        {
+          method: "POST",
+        },
+      );
+
+      if (saved?.item) {
+        setContentList((items) => replaceContentItem(items, saved.item));
+        addActivity("bell", `${saved.item.title} unapproved`);
+        notify(
+          saved.item.status === "Changes Requested"
+            ? "Approval removed; open comments still need attention"
+            : "Approval removed and content returned to review",
+          "warning",
+        );
+        return;
+      }
+
+      if (session?.accessToken) {
+        return;
+      }
+
+      const nextStatus = activeItem.unresolved > 0 ? "Changes Requested" : "In Review";
+      setContentList((items) =>
+        items.map((item) =>
+          item.id === activeItem.id
+            ? {
+                ...item,
+                approvedAt: undefined,
+                archiveDeleteAt: undefined,
+                status: nextStatus,
+              }
+            : item,
+        ),
+      );
+      addActivity("bell", `${activeItem.title} unapproved`);
+      notify(
+        nextStatus === "Changes Requested"
+          ? "Approval removed; open comments still need attention"
+          : "Approval removed and content returned to review",
+        "warning",
+      );
+    } finally {
+      setApprovalPending(false);
+    }
+  };
+
   const handleDownload = async (item: PortalContent, final = false) => {
     const saved = await callBackend<{
       downloadUrl?: string;
@@ -1660,13 +1730,14 @@ export default function PortalClient({
                     item={activeItem}
                     onBack={backToFolder}
                   />
-                  <ApprovalWorkspace
+          <ApprovalWorkspace
                     activeComments={activeComments}
                     activeItem={activeItem}
                     activePlatform={activePlatform}
                     activityList={activityList}
                     canArchive={capabilities.canArchive}
                     canApprove={capabilities.canApprove}
+                    canUnapprove={capabilities.canUnapprove}
                     canComment={capabilities.canComment}
                     focused
                     hasNextItem={Boolean(projectContent[projectContent.findIndex((item) => item.id === routeActiveItemId) + 1])}
@@ -1685,6 +1756,17 @@ export default function PortalClient({
                     onPreviousItem={() => moveApproval("previous")}
                     onResolveComment={handleResolveComment}
                     onShare={() => setShareOpen(true)}
+                    onUnapprove={handleUnapprove}
+                    onDelete={
+                      capabilities.canCreate
+                        ? () =>
+                            requestDelete({
+                              id: activeItem?.id ?? routeActiveItemId,
+                              kind: "content",
+                              label: activeItem?.title ?? "content",
+                            })
+                        : undefined
+                    }
                     approvalPending={approvalPending}
                     previewLoading={previewLoading}
                     previewUrl={previewUrl}
@@ -3656,6 +3738,7 @@ function ApprovalWorkspace({
   approvalPending,
   canArchive,
   canApprove,
+  canUnapprove,
   canComment,
   focused = false,
   hasNextItem,
@@ -3670,6 +3753,8 @@ function ApprovalWorkspace({
   onPreviousItem,
   onResolveComment,
   onShare,
+  onUnapprove,
+  onDelete,
   previewLoading,
   previewUrl,
 }: {
@@ -3680,6 +3765,7 @@ function ApprovalWorkspace({
   approvalPending: boolean;
   canArchive: boolean;
   canApprove: boolean;
+  canUnapprove: boolean;
   canComment: boolean;
   focused?: boolean;
   hasNextItem: boolean;
@@ -3694,6 +3780,8 @@ function ApprovalWorkspace({
   onPreviousItem: () => void;
   onResolveComment: (commentId: string) => void;
   onShare: () => void;
+  onUnapprove: () => void;
+  onDelete?: () => void;
   previewLoading: boolean;
   previewUrl?: string;
 }) {
@@ -3748,6 +3836,7 @@ function ApprovalWorkspace({
           <div className="flex items-center gap-2">
             <IconButton label="Private link" icon={LockKeyhole} onClick={onShare} />
             <IconButton label="Share" icon={Share2} onClick={onShare} />
+            {onDelete ? <IconButton label="Delete content" icon={Trash2} onClick={onDelete} /> : null}
           </div>
         }
       >
@@ -3763,6 +3852,7 @@ function ApprovalWorkspace({
           <ReviewPanel
             approvalPending={approvalPending}
             canApprove={canApprove}
+            canUnapprove={canUnapprove}
             canComment={canComment}
             comments={activeComments}
             item={activeItem}
@@ -3773,6 +3863,7 @@ function ApprovalWorkspace({
             onNextItem={onNextItem}
             onPreviousItem={onPreviousItem}
             onResolveComment={onResolveComment}
+            onUnapprove={onUnapprove}
           />
         </div>
       </Panel>
@@ -3935,6 +4026,7 @@ function PreviewIcon({ icon: Icon, label }: { icon: LucideIcon; label: string })
 function ReviewPanel({
   approvalPending,
   canApprove,
+  canUnapprove,
   canComment,
   comments,
   hasNextItem,
@@ -3945,9 +4037,11 @@ function ReviewPanel({
   onNextItem,
   onPreviousItem,
   onResolveComment,
+  onUnapprove,
 }: {
   approvalPending: boolean;
   canApprove: boolean;
+  canUnapprove: boolean;
   canComment: boolean;
   comments: PortalComment[];
   hasNextItem: boolean;
@@ -3958,9 +4052,11 @@ function ReviewPanel({
   onNextItem: () => void;
   onPreviousItem: () => void;
   onResolveComment: (commentId: string) => void;
+  onUnapprove: () => void;
 }) {
   const talent = talentFromTags(item.tags);
   const approvalBlocked = item.unresolved > 0;
+  const isApproved = item.status === "Approved" || item.status === "Archive Scheduled";
 
   return (
     <div className="flex min-w-0 flex-col">
@@ -4043,27 +4139,31 @@ function ReviewPanel({
           <MessageCircle aria-hidden className="size-4" />
           Comment
         </button>
-        <button
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300 disabled:text-zinc-600"
-          disabled={
-            !canApprove ||
-            approvalPending ||
-            approvalBlocked ||
-            item.status === "Approved" ||
-            item.status === "Archive Scheduled"
-          }
-          onClick={onApprove}
-          type="button"
-        >
-          {approvalPending ? <Clock3 aria-hidden className="size-4 animate-spin" /> : <Check aria-hidden className="size-4" />}
-          {approvalPending
-            ? "Approving..."
-            : item.status === "Approved" || item.status === "Archive Scheduled"
-              ? "Approved"
+        {isApproved ? (
+          <button
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 text-sm font-semibold text-amber-900 transition hover:border-amber-400 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!canUnapprove || approvalPending}
+            onClick={onUnapprove}
+            type="button"
+          >
+            {approvalPending ? <Clock3 aria-hidden className="size-4 animate-spin" /> : <Undo2 aria-hidden className="size-4" />}
+            {approvalPending ? "Updating..." : "Unapprove"}
+          </button>
+        ) : (
+          <button
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300 disabled:text-zinc-600"
+            disabled={!canApprove || approvalPending || approvalBlocked}
+            onClick={onApprove}
+            type="button"
+          >
+            {approvalPending ? <Clock3 aria-hidden className="size-4 animate-spin" /> : <Check aria-hidden className="size-4" />}
+            {approvalPending
+              ? "Approving..."
               : approvalBlocked
                 ? `Resolve ${item.unresolved} comment${item.unresolved === 1 ? "" : "s"}`
                 : "Approve"}
-        </button>
+          </button>
+        )}
         <button
           aria-label="Next content"
           className="inline-flex h-11 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-40"

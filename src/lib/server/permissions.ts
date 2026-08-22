@@ -19,6 +19,12 @@ export function assertCanApprove(profile: Profile) {
   }
 }
 
+export function assertCanUnapprove(profile: Profile) {
+  if (profile.role === "Assistant") {
+    throw new ApiError("Assistant users cannot change approval state.", 403);
+  }
+}
+
 export function assertCanArchive(profile: Profile) {
   if (profile.role !== "Creative") {
     throw new ApiError("Only Creative users can schedule archive.", 403);

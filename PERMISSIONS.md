@@ -20,6 +20,7 @@ Implement permissions as capabilities. Roles should assign default capabilities,
 - can_comment
 - can_resolve_comments
 - can_approve
+- can_unapprove
 - can_create_private_links
 - can_create_public_links
 - can_mark_to_archive
@@ -43,6 +44,7 @@ Implement permissions as capabilities. Roles should assign default capabilities,
 | Comment | Yes | Yes | No | Yes |
 | Resolve comments | Yes | Yes | No | Yes |
 | Approve | No | Yes | No | Yes |
+| Unapprove | Yes | Yes | No | Yes |
 | Create private links | Yes | Yes | No | Yes |
 | Create public links | Yes | Yes | No | Yes |
 | Mark to archive | Yes | No | No | Yes |
@@ -60,4 +62,6 @@ Implement permissions as capabilities. Roles should assign default capabilities,
 - Private links require login and normal permission checks.
 - Download requires content access plus can_download_content or a valid public link with download enabled.
 - Approval requires can_approve, assigned campaign access, no unresolved comments, and a non-archived current version.
+- Unapproval requires can_unapprove and assigned campaign access; it clears approval and cancels any pending archive hold.
+- Content deletion requires Creative or Super Admin access and removes stored media, comments, and the content record.
 - Archive scheduling requires approved status and can_mark_to_archive.
