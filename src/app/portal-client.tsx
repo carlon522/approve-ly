@@ -25,12 +25,14 @@ import {
   LockKeyhole,
   LogOut,
   MessageCircle,
+  MessageSquareText,
   MoreHorizontal,
   Play,
   Plus,
   Send,
   Share2,
   ShieldCheck,
+  Trash2,
   Upload,
   Users,
   X,
@@ -62,7 +64,14 @@ import {
 import type { BootstrapPayload } from "@/lib/server/types";
 
 type Role = "Creative" | "Approver" | "Assistant";
-type View = "Dashboard" | "Campaigns" | "Inbox" | "Archive" | "Team";
+type View =
+  | "Dashboard"
+  | "Campaigns"
+  | "Comments received"
+  | "Content to approve"
+  | "Archive"
+  | "Team"
+  | "Talent content";
 type ProjectStage = "campaign" | "folder" | "content";
 type ToastTone = "success" | "warning" | "neutral";
 type ActivityKind = "bell" | "check" | "archive" | "upload" | "comment" | "share";
@@ -117,9 +126,23 @@ type Toast = {
   tone: ToastTone;
 };
 
+type DeleteTarget = {
+  id: string;
+  kind: "campaign" | "content" | "folder";
+  label: string;
+};
+
 type UploadProgress = {
   label: string;
   value: number;
+};
+
+type DemoPortalState = {
+  activity: PortalActivity[];
+  campaigns: PortalCampaign[];
+  comments: PortalComment[];
+  contentItems: PortalContent[];
+  folders: PortalFolder[];
 };
 
 type UploadDraft = {
@@ -236,8 +259,8 @@ const commentSeed: PortalComment[] = comments.map((comment, index) => ({
 }));
 
 const activitySeed: PortalActivity[] = [
-  { id: "activity-1", kind: "bell", title: "Comment bundle sent", meta: "11 minutes ago" },
-  { id: "activity-2", kind: "check", title: "Founder short approved", meta: "42 minutes ago" },
+  { id: "activity-1", kind: "bell", title: "Comment bundle sent for Summer drop reveal", meta: "11 minutes ago" },
+  { id: "activity-2", kind: "check", title: "Founder short Q3 approved", meta: "42 minutes ago" },
   { id: "activity-3", kind: "archive", title: "3 files ready for final download", meta: "Today" },
 ];
 
@@ -256,26 +279,30 @@ const defaultUploadDraft: UploadDraft = {
 const viewRoutes: Record<View, string> = {
   Dashboard: "/dashboard",
   Campaigns: "/campaigns",
-  Inbox: "/inbox",
+  "Comments received": "/comments-received",
+  "Content to approve": "/approvals",
   Archive: "/archive",
   Team: "/team",
+  "Talent content": "/talent",
 };
 
 export default function PortalClient({
   initialCampaignId,
   initialContentId,
   initialFolderId,
+  initialTalent,
   initialStage,
   initialView,
 }: {
   initialCampaignId?: string;
   initialContentId?: string;
   initialFolderId?: string;
+  initialTalent?: string;
   initialStage?: ProjectStage;
   initialView?: View;
 } = {}) {
   const router = useRouter();
-  const [session, setSession] = useState<Session | null>(() => readDemoSession());
+  const [session, setSession] = useState<Session | null>(null);
   const [campaignList, setCampaignList] = useState<PortalCampaign[]>(campaignSeed);
   const [folderList, setFolderList] = useState<PortalFolder[]>(folderSeed);
   const [contentList, setContentList] = useState<PortalContent[]>(contentSeed);
@@ -294,6 +321,10 @@ export default function PortalClient({
   const [folderOpen, setFolderOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [commentOpen, setCommentOpen] = useState(false);
+  const [selectedTalent, setSelectedTalent] = useState(initialTalent ?? "");
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [approvalPending, setApprovalPending] = useState(false);
+  const [celebration, setCelebration] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [previewState, setPreviewState] = useState<{
     itemId: string;
@@ -302,11 +333,50 @@ export default function PortalClient({
   }>({ itemId: "", loading: false });
   const [workspaceLoading, setWorkspaceLoading] = useState(isSupabaseBrowserConfigured());
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [demoStateReady, setDemoStateReady] = useState(false);
 
   const projectId = initialCampaignId ?? null;
   const projectStage = initialStage ?? "campaign";
   const projectFolderId = initialFolderId ?? null;
   const routeActiveItemId = initialContentId ?? activeItemId;
+
+  useEffect(() => {
+    const storedState = isSupabaseBrowserConfigured() ? null : readDemoState();
+    const timer = window.setTimeout(() => {
+      if (storedState) {
+        setCampaignList(storedState.campaigns);
+        setFolderList(storedState.folders);
+        setContentList(storedState.contentItems);
+        setCommentList(storedState.comments);
+        setActivityList(storedState.activity);
+      }
+
+      if (!isSupabaseBrowserConfigured()) {
+        setSession(readDemoSession());
+      }
+
+      setDemoStateReady(true);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (isSupabaseBrowserConfigured() || !demoStateReady) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      "approveLyPortalState",
+      JSON.stringify({
+        activity: activityList,
+        campaigns: campaignList,
+        comments: commentList,
+        contentItems: contentList,
+        folders: folderList,
+      } satisfies DemoPortalState),
+    );
+  }, [activityList, campaignList, commentList, contentList, demoStateReady, folderList]);
 
   useEffect(() => {
     if (!isSupabaseBrowserConfigured()) {
@@ -501,49 +571,55 @@ export default function PortalClient({
     }, 3600);
   };
 
+  const triggerCelebration = () => {
+    setCelebration(true);
+    window.setTimeout(() => setCelebration(false), 2200);
+  };
+
   const capabilities = session ? roleCapabilities[session.role] : roleCapabilities.Creative;
+  const usesDemoAssignmentRules = !session?.accessToken && session?.role === "Approver";
 
   const companies = useMemo(() => {
     const availableCampaigns =
-      session?.role === "Approver"
+      usesDemoAssignmentRules
         ? campaignList.filter((campaign) =>
             capabilities.assignedCampaigns?.includes(campaign.name),
           )
         : campaignList;
 
     return Array.from(new Set(availableCampaigns.map((campaign) => campaign.company)));
-  }, [campaignList, capabilities.assignedCampaigns, session?.role]);
+  }, [campaignList, capabilities.assignedCampaigns, usesDemoAssignmentRules]);
 
   const visibleCampaigns = useMemo(() => {
     const byCompany = campaignList.filter((campaign) => campaign.company === selectedCompany);
 
-    if (session?.role === "Approver") {
+    if (usesDemoAssignmentRules) {
       return byCompany.filter((campaign) =>
         capabilities.assignedCampaigns?.includes(campaign.name),
       );
     }
 
     return byCompany;
-  }, [campaignList, capabilities.assignedCampaigns, selectedCompany, session?.role]);
+  }, [campaignList, capabilities.assignedCampaigns, selectedCompany, usesDemoAssignmentRules]);
 
   const accessibleCampaigns = useMemo(
     () =>
       campaignList.filter(
         (campaign) =>
-          session?.role !== "Approver" ||
+          !usesDemoAssignmentRules ||
           capabilities.assignedCampaigns?.includes(campaign.name),
       ),
-    [campaignList, capabilities.assignedCampaigns, session?.role],
+    [campaignList, capabilities.assignedCampaigns, usesDemoAssignmentRules],
   );
 
   const accessibleContent = useMemo(
     () =>
       contentList.filter(
         (item) =>
-          session?.role !== "Approver" ||
+          !usesDemoAssignmentRules ||
           capabilities.assignedCampaigns?.includes(item.campaign),
       ),
-    [capabilities.assignedCampaigns, contentList, session?.role],
+    [capabilities.assignedCampaigns, contentList, usesDemoAssignmentRules],
   );
 
   const pendingContent = useMemo(
@@ -614,7 +690,7 @@ export default function PortalClient({
   const firstCampaignForCompany = (company: string) => {
     const matches = campaignList.filter((campaign) => campaign.company === company);
     const allowed =
-      session?.role === "Approver"
+      usesDemoAssignmentRules
         ? matches.filter((campaign) =>
             capabilities.assignedCampaigns?.includes(campaign.name),
           )
@@ -686,7 +762,8 @@ export default function PortalClient({
     ).length;
     const openComments = commentList.filter((comment) => comment.status === "Open").length;
     const approved = accessibleContent.filter((item) => item.status === "Approved").length;
-    const storage = accessibleContent.reduce((total, item) => total + sizeToGb(item.size), 0);
+    const storedItems = accessibleContent.filter((item) => item.storageKey);
+    const storageBytes = storedItems.reduce((total, item) => total + sizeToBytes(item.size), 0);
 
     return [
       {
@@ -711,14 +788,24 @@ export default function PortalClient({
         value: String(approved),
       },
       {
-        detail: "10GB total limit",
+        detail: storedItems.length
+          ? `${storedItems.length} uploaded file${storedItems.length === 1 ? "" : "s"} tracked`
+          : "No uploaded files tracked yet",
         icon: Database,
         label: "Storage used",
         tone: "red" as const,
-        value: `${storage.toFixed(1)}GB`,
+        value: formatStorage(storageBytes),
       },
     ];
   }, [accessibleContent, commentList]);
+
+  const talentContent = useMemo(
+    () =>
+      selectedTalent
+        ? accessibleContent.filter((item) => talentFromTags(item.tags) === selectedTalent)
+        : accessibleContent,
+    [accessibleContent, selectedTalent],
+  );
 
   const addActivity = (kind: ActivityKind, title: string, meta = "Just now") => {
     setActivityList((items) => [
@@ -1095,7 +1182,7 @@ export default function PortalClient({
   };
 
   const handleApprove = async () => {
-    if (!activeItem) {
+    if (!activeItem || approvalPending) {
       return;
     }
 
@@ -1108,37 +1195,45 @@ export default function PortalClient({
       return;
     }
 
-    const saved = await callBackend<{ item: PortalContent }>(
-      `/api/content/${activeItem.id}/approve`,
-      {
-        method: "POST",
-      },
-    );
+    setApprovalPending(true);
 
-    if (saved?.item) {
-      setContentList((items) => replaceContentItem(items, saved.item));
-      addActivity("check", `${saved.item.title} approved`);
+    try {
+      const saved = await callBackend<{ item: PortalContent }>(
+        `/api/content/${activeItem.id}/approve`,
+        {
+          method: "POST",
+        },
+      );
+
+      if (saved?.item) {
+        setContentList((items) => replaceContentItem(items, saved.item));
+        addActivity("check", `${saved.item.title} approved`);
+        notify("Approved in one click");
+        triggerCelebration();
+        return;
+      }
+
+      if (session?.accessToken) {
+        return;
+      }
+
+      setContentList((items) =>
+        items.map((item) =>
+          item.id === activeItem.id
+            ? {
+                ...item,
+                approvedAt: "Just now",
+                status: "Approved",
+              }
+            : item,
+        ),
+      );
+      addActivity("check", `${activeItem.title} approved`);
       notify("Approved in one click");
-      return;
+      triggerCelebration();
+    } finally {
+      setApprovalPending(false);
     }
-
-    if (session?.accessToken) {
-      return;
-    }
-
-    setContentList((items) =>
-      items.map((item) =>
-        item.id === activeItem.id
-          ? {
-              ...item,
-              approvedAt: "Just now",
-              status: "Approved",
-            }
-          : item,
-      ),
-    );
-    addActivity("check", `${activeItem.title} approved`);
-    notify("Approved in one click");
   };
 
   const handleDownload = async (item: PortalContent, final = false) => {
@@ -1262,6 +1357,76 @@ export default function PortalClient({
     notify("Archive scheduled with 7 day hold");
   };
 
+  const requestDelete = (target: DeleteTarget) => {
+    if (!requirePermission(capabilities.canCreate, "Only Creatives can delete workspace items.")) {
+      return;
+    }
+
+    setDeleteTarget(target);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) {
+      return;
+    }
+
+    const target = deleteTarget;
+
+    if (target.kind === "folder") {
+      const folder = folderList.find((item) => item.id === target.id);
+      const hasContent = folder
+        ? contentList.some(
+            (item) => item.folder === folder.name || item.folder.startsWith(`${folder.name} /`),
+          )
+        : false;
+
+      if (hasContent) {
+        notify("Delete or move the content in this folder first.", "warning");
+        return;
+      }
+    }
+
+    const endpoint =
+      target.kind === "content"
+        ? `/api/content/${encodeURIComponent(target.id)}`
+        : target.kind === "campaign"
+          ? `/api/campaigns/${encodeURIComponent(target.id)}`
+          : `/api/folders/${encodeURIComponent(target.id)}`;
+    const saved = await callBackend<{ id: string }>(endpoint, { method: "DELETE" });
+
+    if (session?.accessToken && !saved) {
+      return;
+    }
+
+    if (target.kind === "content") {
+      setContentList((items) => items.filter((item) => item.id !== target.id));
+      setCommentList((items) => items.filter((comment) => comment.contentId !== target.id));
+      addActivity("archive", `${target.label} deleted`);
+    }
+
+    if (target.kind === "campaign") {
+      const campaign = campaignList.find((item) => item.id === target.id);
+      setCampaignList((items) => items.filter((item) => item.id !== target.id));
+      setContentList((items) =>
+        items.filter(
+          (item) => item.campaign !== campaign?.name || item.company !== campaign?.company,
+        ),
+      );
+      setSelectedCampaign("");
+      addActivity("archive", `${target.label} deleted`);
+    }
+
+    if (target.kind === "folder") {
+      setFolderList((items) => items.filter((item) => item.id !== target.id));
+      addActivity("archive", `${target.label} folder deleted`);
+    }
+
+    setDeleteTarget(null);
+    notify(`${target.label} deleted`, "neutral");
+    setActiveView("Campaigns");
+    router.push(target.kind === "campaign" ? "/campaigns" : projectId ? `/campaigns/${encodeURIComponent(projectId)}` : "/campaigns");
+  };
+
   const handleShare = async (mode: "Private" | "Public") => {
     if (!activeItem) {
       return;
@@ -1354,6 +1519,43 @@ export default function PortalClient({
     router.push(viewRoutes[view]);
   };
 
+  const openTalent = (talent: string) => {
+    setSelectedTalent(talent);
+    setActiveView("Talent content");
+    router.push(`/talent?name=${encodeURIComponent(talent)}`);
+  };
+
+  const showAllTalentContent = () => {
+    setSelectedTalent("");
+    setActiveView("Talent content");
+    router.push("/talent");
+  };
+
+  const openActivity = (activity: PortalActivity) => {
+    const related = accessibleContent.find(
+      (item) =>
+        activity.title.includes(item.id) ||
+        activity.title.toLowerCase().includes(item.title.toLowerCase()),
+    );
+
+    if (related) {
+      openContent(related);
+      return;
+    }
+
+    if (activity.kind === "archive") {
+      navigateToView("Archive");
+      return;
+    }
+
+    if (activity.kind === "comment") {
+      navigateToView("Comments received");
+      return;
+    }
+
+    navigateToView(session?.role === "Approver" ? "Content to approve" : "Campaigns");
+  };
+
   const openContent = (item: PortalContent) => {
     const campaign = accessibleCampaigns.find(
       (candidate) => candidate.name === item.campaign && candidate.company === item.company,
@@ -1399,13 +1601,14 @@ export default function PortalClient({
     return <LoginScreen onLogin={handleLogin} />;
   }
 
-  if (session.accessToken && workspaceLoading) {
-    return <WorkspaceLoadingScreen name={session.name} />;
-  }
-
   return (
     <main className="min-h-screen bg-[#f7f7f4] text-zinc-950">
-      <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-3 py-3 sm:px-5 lg:flex-row lg:p-5">
+      <div
+        aria-busy={workspaceLoading}
+        className={`mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-3 py-3 transition-[filter,opacity] sm:px-5 lg:flex-row lg:p-5 ${
+          workspaceLoading ? "blur-[2px] opacity-70" : ""
+        }`}
+      >
         <Sidebar
           activeView={activeView}
           onChangeView={navigateToView}
@@ -1451,6 +1654,7 @@ export default function PortalClient({
                     onPreviousItem={() => moveApproval("previous")}
                     onResolveComment={handleResolveComment}
                     onShare={() => setShareOpen(true)}
+                    approvalPending={approvalPending}
                     previewLoading={previewLoading}
                     previewUrl={previewUrl}
                   />
@@ -1458,8 +1662,20 @@ export default function PortalClient({
               ) : (
                 <>
                   <ProjectHeader
+                    canCreate={capabilities.canCreate}
                     campaign={currentProject ?? visibleCampaigns[0]}
+                    contentItems={projectContent}
                     name={session.name}
+                    onDelete={
+                      capabilities.canCreate && currentProject
+                        ? () =>
+                            requestDelete({
+                              id: currentProject.id,
+                              kind: "campaign",
+                              label: currentProject.name,
+                            })
+                        : undefined
+                    }
                     onBack={projectStage === "folder" ? backToCampaign : closeProject}
                     onNewUpload={() => {
                       if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
@@ -1470,6 +1686,7 @@ export default function PortalClient({
                   />
                   {projectStage === "campaign" ? (
                     <CampaignOverviewPage
+                      canCreate={capabilities.canCreate}
                       campaign={currentProject ?? visibleCampaigns[0]}
                       contentItems={projectContent}
                       folders={projectFolders}
@@ -1478,6 +1695,16 @@ export default function PortalClient({
                           setFolderOpen(true);
                         }
                       }}
+                      onDelete={
+                        capabilities.canCreate && currentProject
+                          ? () =>
+                              requestDelete({
+                                id: currentProject.id,
+                                kind: "campaign",
+                                label: currentProject.name,
+                              })
+                          : undefined
+                      }
                       onOpenFolder={openFolder}
                       onUpload={() => {
                         if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
@@ -1491,11 +1718,26 @@ export default function PortalClient({
                       folder={currentFolder}
                       items={folderContent}
                       onBack={backToCampaign}
+                      onDeleteFolder={
+                        capabilities.canCreate && currentFolder
+                          ? () =>
+                              requestDelete({
+                                id: currentFolder.id,
+                                kind: "folder",
+                                label: currentFolder.name,
+                              })
+                          : undefined
+                      }
                       onDownload={handleDownload}
                       onMore={(item) => {
                         setActiveItemId(item.id);
                         setShareOpen(true);
                       }}
+                      onDelete={
+                        capabilities.canCreate
+                          ? (item) => requestDelete({ id: item.id, kind: "content", label: item.title })
+                          : undefined
+                      }
                       onOpenItem={openApproval}
                     />
                   )}
@@ -1507,6 +1749,7 @@ export default function PortalClient({
               {activeView === "Dashboard" ? (
                 <>
                   <DashboardHeader
+                    canCreate={capabilities.canCreate}
                     companies={companies}
                     name={session.name}
                     onCompanyChange={(company) => {
@@ -1525,17 +1768,22 @@ export default function PortalClient({
                   <DashboardGrid metrics={metrics} />
                   <DashboardStatusOverview
                     contentItems={accessibleContent}
+                    onOpenTalent={openTalent}
                     onOpenView={navigateToView}
+                    onShowAllContent={showAllTalentContent}
+                    role={session.role}
                   />
                   <DashboardHome
                     activeView="Dashboard"
                     campaigns={visibleCampaigns}
+                    canCreate={capabilities.canCreate}
                     onAddCampaign={() => {
                       if (requirePermission(capabilities.canCreate, "Only Creatives can create campaigns.")) {
                         setCampaignOpen(true);
                       }
                     }}
                     onOpenCampaign={openProject}
+                    onOpenActivity={openActivity}
                     recentActivity={activityList}
                   />
                 </>
@@ -1553,18 +1801,32 @@ export default function PortalClient({
                   role={session.role}
                 />
               ) : null}
-              {activeView === "Inbox" ? (
+              {activeView === "Comments received" ? (
+                <CommentsReceivedPage
+                  comments={commentList.filter((comment) =>
+                    accessibleContent.some((item) => item.id === comment.contentId),
+                  )}
+                  contentItems={accessibleContent}
+                  onOpenContent={openContent}
+                />
+              ) : null}
+              {activeView === "Content to approve" ? (
                 <ContentListPage
-                  description="Review submitted work and open any item in its campaign workspace."
-                  emptyTitle="Inbox is clear"
+                  description="Assigned content ready for review, comments, or one-click approval."
+                  emptyTitle="Nothing waiting for approval"
                   items={pendingContent}
                   onDownload={handleDownload}
+                  onDelete={
+                    capabilities.canCreate
+                      ? (item) => requestDelete({ id: item.id, kind: "content", label: item.title })
+                      : undefined
+                  }
                   onMore={(item) => {
                     setActiveItemId(item.id);
                     setShareOpen(true);
                   }}
                   onSelect={openContent}
-                  title="Needs approval"
+                  title="Content to approve"
                 />
               ) : null}
               {activeView === "Archive" ? (
@@ -1573,6 +1835,11 @@ export default function PortalClient({
                   emptyTitle="Nothing archived yet"
                   items={archivedContent}
                   onDownload={(item) => handleDownload(item, true)}
+                  onDelete={
+                    capabilities.canCreate
+                      ? (item) => requestDelete({ id: item.id, kind: "content", label: item.title })
+                      : undefined
+                  }
                   onMore={(item) => {
                     setActiveItemId(item.id);
                     setShareOpen(true);
@@ -1590,12 +1857,48 @@ export default function PortalClient({
                   onOpenCampaign={openProject}
                 />
               ) : null}
+              {activeView === "Talent content" ? (
+                <ContentListPage
+                  action={
+                    <button
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-4 text-sm font-semibold transition hover:border-zinc-400"
+                      onClick={showAllTalentContent}
+                      type="button"
+                    >
+                      <Users aria-hidden className="size-4" />
+                      Show all content
+                    </button>
+                  }
+                  description={
+                    selectedTalent
+                      ? `Every content item tagged to ${selectedTalent}.`
+                      : "Every content item with talent labels across your workspace."
+                  }
+                  emptyTitle={selectedTalent ? `No content for ${selectedTalent}` : "No content yet"}
+                  items={talentContent}
+                  onDownload={handleDownload}
+                  onDelete={
+                    capabilities.canCreate
+                      ? (item) => requestDelete({ id: item.id, kind: "content", label: item.title })
+                      : undefined
+                  }
+                  onMore={(item) => {
+                    setActiveItemId(item.id);
+                    setShareOpen(true);
+                  }}
+                  onSelect={openContent}
+                  title={selectedTalent ? `${selectedTalent} content` : "All talent content"}
+                />
+              ) : null}
             </>
           )}
         </section>
       </div>
 
       <ToastStack toasts={toasts} />
+
+      {workspaceLoading ? <WorkspaceSyncToast /> : null}
+      {celebration ? <ConfettiBurst /> : null}
 
       {uploadOpen ? (
         <UploadModal
@@ -1654,6 +1957,13 @@ export default function PortalClient({
           }}
         />
       ) : null}
+      {deleteTarget ? (
+        <DeleteModal
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={() => void handleDelete()}
+          target={deleteTarget}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1664,6 +1974,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
   const [password, setPassword] = useState("approval");
   const [role, setRole] = useState<Role>("Creative");
   const [error, setError] = useState("");
+  const [googleLoading, setGoogleLoading] = useState(false);
   const liveAuth = isSupabaseBrowserConfigured();
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -1699,6 +2010,31 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
       name: name.trim() || email.split("@")[0] || "User",
       role,
     });
+  };
+
+  const startGoogleSignIn = async () => {
+    if (!liveAuth) {
+      onLogin({
+        email: "google.user@approvely.app",
+        name: "Google User",
+        role,
+      });
+      return;
+    }
+
+    setGoogleLoading(true);
+    setError("");
+    const { error: oauthError } = await createBrowserSupabaseClient().auth.signInWithOAuth({
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+      },
+      provider: "google",
+    });
+
+    if (oauthError) {
+      setGoogleLoading(false);
+      setError(`Google sign-in is not ready: ${oauthError.message}`);
+    }
   };
 
   return (
@@ -1799,28 +2135,12 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
         </form>
         <button
           className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-4 text-sm font-semibold transition hover:border-zinc-300"
-          onClick={() => {
-            if (liveAuth) {
-              const supabase = createBrowserSupabaseClient();
-              void supabase.auth.signInWithOAuth({
-                options: {
-                  redirectTo: window.location.origin,
-                },
-                provider: "google",
-              });
-              return;
-            }
-
-            onLogin({
-              email: "google.user@approvely.app",
-              name: "Google User",
-              role,
-            });
-          }}
+          disabled={googleLoading}
+          onClick={() => void startGoogleSignIn()}
           type="button"
         >
           <ShieldCheck aria-hidden className="size-4" />
-          Continue with Google
+          {googleLoading ? "Opening Google..." : "Continue with Google"}
         </button>
       </section>
     </main>
@@ -1828,6 +2148,7 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
 }
 
 function DashboardHeader({
+  canCreate,
   companies,
   name,
   onCompanyChange,
@@ -1835,6 +2156,7 @@ function DashboardHeader({
   role,
   selectedCompany,
 }: {
+  canCreate: boolean;
   companies: string[];
   name: string;
   onCompanyChange: (company: string) => void;
@@ -1863,14 +2185,16 @@ function DashboardHeader({
             options={companies}
             value={selectedCompany}
           />
-          <button
-            className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
-            onClick={onNewUpload}
-            type="button"
-          >
-            <Plus aria-hidden className="size-4" />
-            New upload
-          </button>
+          {canCreate ? (
+            <button
+              className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              onClick={onNewUpload}
+              type="button"
+            >
+              <Plus aria-hidden className="size-4" />
+              New upload
+            </button>
+          ) : null}
         </div>
       </div>
     </header>
@@ -1878,18 +2202,32 @@ function DashboardHeader({
 }
 
 function ProjectHeader({
+  canCreate,
   campaign,
+  contentItems,
   name,
+  onDelete,
   onBack,
   onNewUpload,
   role,
 }: {
+  canCreate: boolean;
   campaign?: PortalCampaign;
+  contentItems: PortalContent[];
   name: string;
+  onDelete?: () => void;
   onBack: () => void;
   onNewUpload: () => void;
   role: Role;
 }) {
+  const videoItems = contentItems.filter((item) => item.type === "Video");
+  const statusBreakdown: Array<{ label: string; status: Status; count: number }> = [
+    { count: videoItems.filter((item) => item.status === "Submitted").length, label: "Submitted", status: "Submitted" },
+    { count: videoItems.filter((item) => item.status === "In Review").length, label: "In review", status: "In Review" },
+    { count: videoItems.filter((item) => item.status === "Changes Requested").length, label: "Changes", status: "Changes Requested" },
+    { count: videoItems.filter((item) => ["Approved", "Archive Scheduled"].includes(item.status)).length, label: "Approved", status: "Approved" },
+  ];
+
   return (
     <header className="border-b border-zinc-200 pb-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1916,18 +2254,21 @@ function ProjectHeader({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {campaign ? <CampaignStatusBadge status={campaign.status} /> : null}
-          <button
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
-            onClick={onNewUpload}
-            type="button"
-          >
-            <Plus aria-hidden className="size-4" />
-            Upload
-          </button>
+          {onDelete ? <IconButton label="Delete campaign" icon={Trash2} onClick={onDelete} /> : null}
+          {canCreate ? (
+            <button
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
+              onClick={onNewUpload}
+              type="button"
+            >
+              <Plus aria-hidden className="size-4" />
+              Upload
+            </button>
+          ) : null}
         </div>
       </div>
       {campaign ? (
-        <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+        <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.9fr)] lg:items-center lg:gap-5">
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-3 text-xs font-semibold text-zinc-500">
               <span>Project progress</span>
@@ -1935,7 +2276,23 @@ function ProjectHeader({
             </div>
             <ProgressBar value={campaign.progress} className="mt-2" />
           </div>
-          <span className="text-sm text-zinc-500">{campaign.approvers}</span>
+          <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3">
+            <div className="flex items-center justify-between gap-3 text-xs font-semibold text-zinc-500">
+              <span>Total videos</span>
+              <span className="text-base text-zinc-950">{videoItems.length}</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {statusBreakdown.map((entry) => (
+                <span
+                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold ${statusStyles[entry.status]}`}
+                  key={entry.label}
+                >
+                  {entry.label} {entry.count}
+                </span>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-zinc-500">{campaign.approvers}</p>
+          </div>
         </div>
       ) : null}
     </header>
@@ -1943,17 +2300,21 @@ function ProjectHeader({
 }
 
 function CampaignOverviewPage({
+  canCreate,
   campaign,
   contentItems,
   folders,
   onAddFolder,
+  onDelete,
   onOpenFolder,
   onUpload,
 }: {
+  canCreate: boolean;
   campaign?: PortalCampaign;
   contentItems: PortalContent[];
   folders: PortalFolder[];
   onAddFolder: () => void;
+  onDelete?: () => void;
   onOpenFolder: (folder: PortalFolder) => void;
   onUpload: () => void;
 }) {
@@ -1970,8 +2331,9 @@ function CampaignOverviewPage({
         title="Folders"
         action={
           <div className="flex items-center gap-2">
-            <IconButton label="Add folder" icon={FolderPlus} onClick={onAddFolder} />
-            <IconButton label="Upload content" icon={Upload} onClick={onUpload} />
+            {canCreate ? <IconButton label="Add folder" icon={FolderPlus} onClick={onAddFolder} /> : null}
+            {canCreate ? <IconButton label="Upload content" icon={Upload} onClick={onUpload} /> : null}
+            {onDelete ? <IconButton label="Delete campaign" icon={Trash2} onClick={onDelete} /> : null}
           </div>
         }
       >
@@ -2032,6 +2394,8 @@ function FolderContentPage({
   folder,
   items,
   onBack,
+  onDelete,
+  onDeleteFolder,
   onDownload,
   onMore,
   onOpenItem,
@@ -2040,6 +2404,8 @@ function FolderContentPage({
   folder?: PortalFolder;
   items: PortalContent[];
   onBack: () => void;
+  onDelete?: (item: PortalContent) => void;
+  onDeleteFolder?: () => void;
   onDownload: (item: PortalContent) => void;
   onMore: (item: PortalContent) => void;
   onOpenItem: (item: PortalContent) => void;
@@ -2048,14 +2414,17 @@ function FolderContentPage({
     <>
       <PageIntro
         action={
-          <button
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-300"
-            onClick={onBack}
-            type="button"
-          >
-            <ArrowLeft aria-hidden className="size-4" />
-            Campaign folders
-          </button>
+          <div className="flex items-center gap-2">
+            {onDeleteFolder ? <IconButton label="Delete folder" icon={Trash2} onClick={onDeleteFolder} /> : null}
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-300"
+              onClick={onBack}
+              type="button"
+            >
+              <ArrowLeft aria-hidden className="size-4" />
+              Campaign folders
+            </button>
+          </div>
         }
         description={`${campaign?.name ?? "Campaign"} / ${folder?.name ?? "Folder"}`}
         eyebrow="Folder contents"
@@ -2069,6 +2438,7 @@ function FolderContentPage({
                 active={false}
                 item={item}
                 key={item.id}
+                onDelete={onDelete ? () => onDelete(item) : undefined}
                 onDownload={() => onDownload(item)}
                 onMore={() => onMore(item)}
                 onSelect={() => onOpenItem(item)}
@@ -2124,30 +2494,95 @@ function ApprovalHeader({
   );
 }
 
-function WorkspaceLoadingScreen({ name }: { name: string }) {
+function WorkspaceSyncToast() {
   return (
-    <main className="grid min-h-screen place-items-center bg-[#f7f7f4] px-4 text-zinc-950">
-      <section className="w-full max-w-md rounded-lg border border-[#dedbd2] bg-white p-6 text-center shadow-sm">
-        <div className="mx-auto grid size-12 place-items-center rounded-md bg-zinc-950 text-sm font-semibold text-white">A</div>
-        <h1 className="mt-4 text-xl font-semibold">Loading {name}&apos;s workspace</h1>
-        <div className="mt-5 h-2 overflow-hidden rounded-full bg-zinc-100" role="progressbar" aria-label="Loading workspace">
-          <div className="h-full w-2/3 animate-pulse rounded-full bg-emerald-600" />
+    <div className="fixed bottom-3 right-3 z-50 w-[min(360px,calc(100vw-24px))] rounded-lg border border-blue-200 bg-white/95 p-3 shadow-lg backdrop-blur" role="status">
+      <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
+        <Clock3 aria-hidden className="size-4 animate-pulse" />
+        Syncing workspace data
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-blue-100" role="progressbar" aria-label="Syncing workspace">
+        <div className="h-full w-2/3 animate-pulse rounded-full bg-blue-600" />
+      </div>
+    </div>
+  );
+}
+
+function ConfettiBurst() {
+  const pieces = Array.from({ length: 28 }, (_, index) => index);
+
+  return (
+    <div aria-label="Approval celebration" className="pointer-events-none fixed inset-0 z-[60] overflow-hidden" role="status">
+      {pieces.map((piece) => (
+        <span
+          className="absolute left-1/2 top-1/3 size-2 animate-[confetti_2.1s_ease-out_forwards] rounded-sm"
+          key={piece}
+          style={{
+            backgroundColor: ["#2563eb", "#db2777", "#f59e0b", "#059669", "#7c3aed"][piece % 5],
+            transform: `rotate(${piece * 31}deg)`,
+            animationDelay: `${(piece % 7) * 35}ms`,
+            left: `${8 + ((piece * 17) % 84)}%`,
+          }}
+        />
+      ))}
+      <div className="absolute left-1/2 top-1/3 -translate-x-1/2 rounded-full bg-white/95 px-4 py-2 text-sm font-semibold text-emerald-800 shadow-lg">
+        Approved
+      </div>
+    </div>
+  );
+}
+
+function DeleteModal({
+  onClose,
+  onConfirm,
+  target,
+}: {
+  onClose: () => void;
+  onConfirm: () => void;
+  target: DeleteTarget;
+}) {
+  return (
+    <Modal onClose={onClose} title={`Delete ${target.kind}`}>
+      <div className="grid gap-4">
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm leading-5 text-red-900">
+          This permanently deletes <strong>{target.label}</strong>. Stored media and related comments cannot be recovered.
         </div>
-      </section>
-    </main>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            className="inline-flex h-11 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold"
+            onClick={onClose}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-red-700 px-3 text-sm font-semibold text-white transition hover:bg-red-800"
+            onClick={onConfirm}
+            type="button"
+          >
+            <Trash2 aria-hidden className="size-4" />
+            Delete permanently
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
 function DashboardHome({
   activeView,
   campaigns,
+  canCreate,
   onAddCampaign,
+  onOpenActivity,
   onOpenCampaign,
   recentActivity,
 }: {
   activeView: View;
   campaigns: PortalCampaign[];
+  canCreate: boolean;
   onAddCampaign: () => void;
+  onOpenActivity: (activity: PortalActivity) => void;
   onOpenCampaign: (campaign: PortalCampaign) => void;
   recentActivity: PortalActivity[];
 }) {
@@ -2158,10 +2593,11 @@ function DashboardHome({
       : "Choose a project to continue working in its focused workspace.";
 
   return (
-    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
       <Panel
         title={heading}
         action={
+          canCreate ? (
           <button
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-300"
             onClick={onAddCampaign}
@@ -2170,6 +2606,7 @@ function DashboardHome({
             <Plus aria-hidden className="size-4" />
             New project
           </button>
+          ) : null
         }
       >
         <p className="mb-4 text-sm text-zinc-600">{supportingCopy}</p>
@@ -2202,7 +2639,7 @@ function DashboardHome({
         </div>
       </Panel>
       <Panel title="Recent activity">
-        <ActivityFeed items={recentActivity.slice(0, 5)} />
+        <ActivityFeed items={recentActivity.slice(0, 5)} onSelect={onOpenActivity} />
       </Panel>
     </section>
   );
@@ -2305,17 +2742,21 @@ function CampaignsPage({
 }
 
 function ContentListPage({
+  action,
   description,
   emptyTitle,
   items,
+  onDelete,
   onDownload,
   onMore,
   onSelect,
   title,
 }: {
+  action?: ReactNode;
   description: string;
   emptyTitle: string;
   items: PortalContent[];
+  onDelete?: (item: PortalContent) => void;
   onDownload: (item: PortalContent) => void;
   onMore: (item: PortalContent) => void;
   onSelect: (item: PortalContent) => void;
@@ -2324,6 +2765,7 @@ function ContentListPage({
   return (
     <>
       <PageIntro
+        action={action}
         description={description}
         eyebrow="Content operations"
         title={title}
@@ -2338,6 +2780,7 @@ function ContentListPage({
                 active={false}
                 item={item}
                 key={item.id}
+                onDelete={onDelete ? () => onDelete(item) : undefined}
                 onDownload={() => onDownload(item)}
                 onMore={() => onMore(item)}
                 onSelect={() => onSelect(item)}
@@ -2346,6 +2789,69 @@ function ContentListPage({
           </div>
         ) : (
           <EmptyState icon={title === "Archive" ? Archive : Inbox} title={emptyTitle} />
+        )}
+      </Panel>
+    </>
+  );
+}
+
+function CommentsReceivedPage({
+  comments,
+  contentItems,
+  onOpenContent,
+}: {
+  comments: PortalComment[];
+  contentItems: PortalContent[];
+  onOpenContent: (item: PortalContent) => void;
+}) {
+  const contentById = new Map(contentItems.map((item) => [item.id, item]));
+
+  return (
+    <>
+      <PageIntro
+        description="A focused summary of messages, anchors, and unresolved review notes received from your team."
+        eyebrow="Content operations"
+        title="Comments received"
+      />
+      <Panel title={`${comments.length} message${comments.length === 1 ? "" : "s"}`}>
+        {comments.length ? (
+          <div className="grid gap-3">
+            {comments.map((comment) => {
+              const item = contentById.get(comment.contentId);
+
+              return (
+                <article className="rounded-lg border border-zinc-200 bg-white p-4" key={comment.id}>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <MessageSquareText aria-hidden className="size-4 text-zinc-500" />
+                        <p className="text-sm font-semibold text-zinc-950">{comment.author}</p>
+                        <span className="text-xs text-zinc-500">{comment.role}</span>
+                        <span className={comment.status === "Open" ? "rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800" : "rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"}>
+                          {comment.status}
+                        </span>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-zinc-700">{comment.body}</p>
+                      <p className="mt-2 text-xs font-semibold text-zinc-500">{comment.anchor}</p>
+                    </div>
+                    {item ? (
+                      <button
+                        className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold transition hover:border-zinc-400"
+                        onClick={() => onOpenContent(item)}
+                        type="button"
+                      >
+                        <ArrowUpRight aria-hidden className="size-4" />
+                        Open content
+                      </button>
+                    ) : null}
+                  </div>
+                  {item ? <p className="mt-3 border-t border-zinc-100 pt-3 text-xs text-zinc-500">{item.title} · {item.id}</p> : null}
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState icon={MessageSquareText} title="No comments received" />
         )}
       </Panel>
     </>
@@ -2452,13 +2958,26 @@ function Sidebar({
   role: Role;
   storageValue: string;
 }) {
-  const navItems: { label: View; icon: LucideIcon }[] = [
-    { label: "Dashboard", icon: Gauge },
-    { label: "Campaigns", icon: Folder },
-    { label: "Inbox", icon: Inbox },
-    { label: "Archive", icon: Archive },
-    { label: "Team", icon: Users },
-  ];
+  const navItems: { label: View; icon: LucideIcon }[] =
+    role === "Approver"
+      ? [
+          { label: "Dashboard", icon: Gauge },
+          { label: "Content to approve", icon: CheckCircle2 },
+        ]
+      : role === "Assistant"
+        ? [
+            { label: "Dashboard", icon: Gauge },
+            { label: "Campaigns", icon: Folder },
+            { label: "Comments received", icon: MessageSquareText },
+            { label: "Archive", icon: Archive },
+          ]
+        : [
+            { label: "Dashboard", icon: Gauge },
+            { label: "Campaigns", icon: Folder },
+            { label: "Comments received", icon: MessageSquareText },
+            { label: "Archive", icon: Archive },
+            { label: "Team", icon: Users },
+          ];
 
   return (
     <aside className="flex shrink-0 flex-col gap-3 rounded-lg border border-[#dedbd2] bg-white p-3 shadow-sm lg:sticky lg:top-5 lg:h-[calc(100vh-40px)] lg:w-64">
@@ -2475,7 +2994,7 @@ function Sidebar({
         <ChevronDown aria-hidden className="size-4 shrink-0 text-zinc-500" />
       </div>
 
-      <nav className="grid grid-cols-5 gap-1 lg:grid-cols-1" aria-label="Primary">
+      <nav className={`grid gap-1 lg:grid-cols-1 ${navItems.length < 5 ? "grid-cols-2" : "grid-cols-5"}`} aria-label="Primary">
         {navItems.map((item) => (
           <button
             aria-label={item.label}
@@ -2499,11 +3018,8 @@ function Sidebar({
           <ShieldCheck aria-hidden className="size-4" />
           {storageValue} storage used
         </div>
-        <div className="mt-3 h-2 rounded-md bg-white">
-          <div className="h-2 w-[68%] rounded-md bg-emerald-600" />
-        </div>
         <p className="mt-2 text-xs leading-5 text-emerald-800">
-          Approved files can be downloaded and marked for archive.
+          Tracked Supabase uploads. Approved files can be downloaded and marked for archive.
         </p>
       </div>
 
@@ -2615,10 +3131,16 @@ function MetricCard({
 
 function DashboardStatusOverview({
   contentItems,
+  onOpenTalent,
   onOpenView,
+  onShowAllContent,
+  role,
 }: {
   contentItems: PortalContent[];
+  onOpenTalent: (talent: string) => void;
   onOpenView: (view: View) => void;
+  onShowAllContent: () => void;
+  role: Role;
 }) {
   const groups: {
     color: string;
@@ -2632,14 +3154,14 @@ function DashboardStatusOverview({
       description: "Submitted or being reviewed",
       label: "In review",
       statuses: ["Submitted", "In Review"],
-      view: "Inbox",
+      view: role === "Approver" ? "Content to approve" : "Campaigns",
     },
     {
       color: "#f59e0b",
       description: "Needs a creative update",
       label: "Needs changes",
       statuses: ["Changes Requested"],
-      view: "Inbox",
+      view: role === "Approver" ? "Content to approve" : "Comments received",
     },
     {
       color: "#059669",
@@ -2664,16 +3186,6 @@ function DashboardStatusOverview({
     ["Approved", "Archive Scheduled"].includes(item.status),
   ).length;
   const completionRate = total ? Math.round((completeCount / total) * 100) : 0;
-  let stop = 0;
-  const ringStops = groups
-    .map((group, index) => {
-      const nextStop = total ? stop + (groupCounts[index] / total) * 100 : stop;
-      const value = `${group.color} ${stop}% ${nextStop}%`;
-      stop = nextStop;
-      return value;
-    })
-    .join(", ");
-
   const talentCounts = Array.from(
     contentItems.reduce((counts, item) => {
       const talent = talentFromTags(item.tags);
@@ -2685,8 +3197,8 @@ function DashboardStatusOverview({
       return counts;
     }, new Map<string, number>()),
   )
-    .sort(([, countA], [, countB]) => countB - countA)
-    .slice(0, 4);
+    .sort(([, countA], [, countB]) => countB - countA);
+  const maxTalentCount = Math.max(1, ...talentCounts.map(([, count]) => count));
 
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(300px,0.92fr)]">
@@ -2698,63 +3210,95 @@ function DashboardStatusOverview({
           </span>
         }
       >
-        <div className="grid gap-6 md:grid-cols-[190px_minmax(0,1fr)] md:items-center">
-          <div className="mx-auto grid size-44 place-items-center rounded-full p-3" style={{ background: total ? `conic-gradient(${ringStops})` : "#e4e4e7" }}>
-            <div className="grid size-full place-items-center rounded-full bg-white text-center">
-              <div>
-                <p className="text-3xl font-semibold tracking-tight text-zinc-950">{completeCount}</p>
-                <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">of {total} complete</p>
-              </div>
-            </div>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-2xl font-semibold text-zinc-950">{completeCount} of {total}</p>
+            <p className="text-xs text-zinc-500">content complete</p>
           </div>
-          <div className="grid gap-2">
-            {groups.map((group, index) => (
+          <span className="text-xs font-semibold text-zinc-500">Hover a colour for detail</span>
+        </div>
+        <div aria-label="Workflow status breakdown" className="mt-5 flex h-7 overflow-visible rounded-full bg-zinc-100">
+          {groups.map((group, index) => {
+            const count = groupCounts[index];
+            const width = total ? (count / total) * 100 : 0;
+
+            return (
               <button
-                className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-3 text-left transition hover:border-zinc-400 disabled:cursor-default disabled:hover:border-zinc-200"
-                disabled={groupCounts[index] === 0}
+                aria-label={`${group.label}: ${count} item${count === 1 ? "" : "s"}`}
+                className="group relative h-full min-w-0 transition hover:brightness-110 disabled:cursor-default"
+                disabled={count === 0}
                 key={group.label}
                 onClick={() => onOpenView(group.view)}
+                style={{ backgroundColor: group.color, width: `${width}%` }}
+                title={`${group.label}: ${count}`}
                 type="button"
               >
-                <span className="flex min-w-0 items-center gap-3">
-                  <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: group.color }} />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold text-zinc-900">{group.label}</span>
-                    <span className="mt-0.5 block truncate text-xs text-zinc-500">{group.description}</span>
+                {count > 0 ? (
+                  <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-zinc-950 px-2 py-1 text-[11px] font-semibold text-white shadow-sm group-hover:block group-focus-visible:block">
+                    {group.label}: {count}
                   </span>
-                </span>
-                <span className="text-lg font-semibold text-zinc-950">{groupCounts[index]}</span>
+                ) : null}
               </button>
-            ))}
-          </div>
+            );
+          })}
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {groups.map((group, index) => (
+            <button
+              className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 text-left transition hover:border-zinc-400 disabled:cursor-default disabled:hover:border-zinc-200"
+              disabled={groupCounts[index] === 0}
+              key={group.label}
+              onClick={() => onOpenView(group.view)}
+              type="button"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: group.color }} />
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold text-zinc-900">{group.label}</span>
+                  <span className="block truncate text-[11px] text-zinc-500">{group.description}</span>
+                </span>
+              </span>
+              <span className="text-sm font-semibold text-zinc-950">{groupCounts[index]}</span>
+            </button>
+          ))}
         </div>
       </Panel>
 
       <Panel
         title="Talent coverage"
         action={
-          <span className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-600">
-            {talentCounts.length} tagged
-          </span>
+          <button
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-zinc-400"
+            onClick={onShowAllContent}
+            type="button"
+          >
+            <Users aria-hidden className="size-3.5" />
+            Show all content
+          </button>
         }
       >
         {talentCounts.length ? (
           <div className="grid gap-3">
             {talentCounts.map(([name, count], index) => (
-              <div className="flex items-center justify-between gap-3" key={name}>
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="grid size-10 shrink-0 place-items-center rounded-full text-sm font-semibold text-white" style={{ backgroundColor: ["#0f766e", "#7c3aed", "#c2410c", "#2563eb"][index % 4] }}>
+              <button
+                className="flex items-center justify-between gap-3 rounded-md border border-transparent px-2 py-2 text-left transition hover:border-zinc-200 hover:bg-zinc-50"
+                key={name}
+                onClick={() => onOpenTalent(name)}
+                type="button"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-full text-sm font-semibold text-white" style={{ backgroundColor: ["#0f766e", "#7c3aed", "#c2410c", "#2563eb"][index % 4] }}>
                     {initials(name)}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-zinc-900">{name}</p>
-                    <p className="text-xs text-zinc-500">{count} content item{count === 1 ? "" : "s"}</p>
-                  </div>
-                </div>
-                <div className="h-2 w-20 overflow-hidden rounded-full bg-zinc-100">
-                  <div className="h-full rounded-full bg-zinc-950" style={{ width: `${Math.max(20, (count / Math.max(...talentCounts.map(([, value]) => value))) * 100)}%` }} />
-                </div>
-              </div>
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-zinc-900">{name}</span>
+                    <span className="block text-xs text-zinc-500">{count} content item{count === 1 ? "" : "s"}</span>
+                  </span>
+                </span>
+                <span className="h-2 w-20 overflow-hidden rounded-full bg-zinc-100">
+                  <span className="block h-full rounded-full bg-zinc-950" style={{ width: `${Math.max(20, (count / maxTalentCount) * 100)}%` }} />
+                </span>
+              </button>
             ))}
           </div>
         ) : (
@@ -2762,6 +3306,13 @@ function DashboardStatusOverview({
             <div>
               <Users aria-hidden className="mx-auto size-6 text-zinc-500" />
               <p className="mt-2 text-sm font-semibold text-zinc-700">No talent tags yet</p>
+              <button
+                className="mt-3 inline-flex h-9 items-center justify-center rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold"
+                onClick={onShowAllContent}
+                type="button"
+              >
+                Show all content
+              </button>
             </div>
           </div>
         )}
@@ -2773,12 +3324,14 @@ function DashboardStatusOverview({
 function ContentCard({
   active,
   item,
+  onDelete,
   onDownload,
   onMore,
   onSelect,
 }: {
   active: boolean;
   item: PortalContent;
+  onDelete?: () => void;
   onDownload: () => void;
   onMore: () => void;
   onSelect: () => void;
@@ -2838,6 +3391,7 @@ function ContentCard({
         <div className="flex items-center gap-1">
           <CommentCounter comments={item.comments} unresolved={item.unresolved} />
           <IconButton label="Download" icon={Download} onClick={onDownload} />
+          {onDelete ? <IconButton label="Delete content" icon={Trash2} onClick={onDelete} /> : null}
           <IconButton label="More" icon={MoreHorizontal} onClick={onMore} />
         </div>
       </div>
@@ -2875,6 +3429,7 @@ function ApprovalWorkspace({
   activeItem,
   activePlatform,
   activityList,
+  approvalPending,
   canArchive,
   canApprove,
   canComment,
@@ -2898,6 +3453,7 @@ function ApprovalWorkspace({
   activeItem?: PortalContent;
   activePlatform: Platform;
   activityList: PortalActivity[];
+  approvalPending: boolean;
   canArchive: boolean;
   canApprove: boolean;
   canComment: boolean;
@@ -2981,6 +3537,7 @@ function ApprovalWorkspace({
             previewUrl={previewUrl}
           />
           <ReviewPanel
+            approvalPending={approvalPending}
             canApprove={canApprove}
             canComment={canComment}
             comments={activeComments}
@@ -3152,6 +3709,7 @@ function PreviewIcon({ icon: Icon, label }: { icon: LucideIcon; label: string })
 }
 
 function ReviewPanel({
+  approvalPending,
   canApprove,
   canComment,
   comments,
@@ -3164,6 +3722,7 @@ function ReviewPanel({
   onPreviousItem,
   onResolveComment,
 }: {
+  approvalPending: boolean;
   canApprove: boolean;
   canComment: boolean;
   comments: PortalComment[];
@@ -3177,6 +3736,7 @@ function ReviewPanel({
   onResolveComment: (commentId: string) => void;
 }) {
   const talent = talentFromTags(item.tags);
+  const approvalBlocked = item.unresolved > 0;
 
   return (
     <div className="flex min-w-0 flex-col">
@@ -3239,13 +3799,17 @@ function ReviewPanel({
         )}
       </div>
 
-      <div className="mt-3 grid grid-cols-[44px_minmax(0,1fr)_minmax(0,1fr)_44px] gap-2">
-        <IconButton
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <button
+          aria-label="Previous content"
+          className="inline-flex h-11 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={!hasPreviousItem}
-          label="Previous content"
-          icon={ChevronLeft}
           onClick={onPreviousItem}
-        />
+          type="button"
+        >
+          <ChevronLeft aria-hidden className="size-4" />
+          Previous
+        </button>
         <button
           className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 transition hover:border-zinc-300 disabled:opacity-50"
           disabled={!canComment}
@@ -3257,19 +3821,35 @@ function ReviewPanel({
         </button>
         <button
           className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:bg-zinc-300 disabled:text-zinc-600"
-          disabled={!canApprove}
+          disabled={
+            !canApprove ||
+            approvalPending ||
+            approvalBlocked ||
+            item.status === "Approved" ||
+            item.status === "Archive Scheduled"
+          }
           onClick={onApprove}
           type="button"
         >
-          <Check aria-hidden className="size-4" />
-          Approve
+          {approvalPending ? <Clock3 aria-hidden className="size-4 animate-spin" /> : <Check aria-hidden className="size-4" />}
+          {approvalPending
+            ? "Approving..."
+            : item.status === "Approved" || item.status === "Archive Scheduled"
+              ? "Approved"
+              : approvalBlocked
+                ? `Resolve ${item.unresolved} comment${item.unresolved === 1 ? "" : "s"}`
+                : "Approve"}
         </button>
-        <IconButton
+        <button
+          aria-label="Next content"
+          className="inline-flex h-11 items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-400 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={!hasNextItem}
-          label="Next content"
-          icon={ChevronRight}
           onClick={onNextItem}
-        />
+          type="button"
+        >
+          Next
+          <ChevronRight aria-hidden className="size-4" />
+        </button>
       </div>
     </div>
   );
@@ -3350,14 +3930,20 @@ function ActivityPanel({ activityList }: { activityList: PortalActivity[] }) {
   );
 }
 
-function ActivityFeed({ items }: { items: PortalActivity[] }) {
+function ActivityFeed({
+  items,
+  onSelect,
+}: {
+  items: PortalActivity[];
+  onSelect?: (activity: PortalActivity) => void;
+}) {
   return (
     <div className="grid gap-2">
       {items.map((item) => {
         const Icon = activityIcons[item.kind];
 
-        return (
-          <div key={item.id} className="flex items-center gap-3 rounded-md border border-zinc-200 bg-white p-3">
+        const content = (
+          <>
             <span className="grid size-9 shrink-0 place-items-center rounded-md bg-zinc-100 text-zinc-700">
               <Icon aria-hidden className="size-4" />
             </span>
@@ -3365,6 +3951,21 @@ function ActivityFeed({ items }: { items: PortalActivity[] }) {
               <p className="truncate text-sm font-semibold">{item.title}</p>
               <p className="text-xs text-zinc-500">{item.meta}</p>
             </div>
+          </>
+        );
+
+        return onSelect ? (
+          <button
+            className="flex min-w-0 w-full items-center gap-3 rounded-md border border-zinc-200 bg-white p-3 text-left transition hover:border-zinc-400 hover:bg-zinc-50"
+            key={item.id}
+            onClick={() => onSelect(item)}
+            type="button"
+          >
+            {content}
+          </button>
+        ) : (
+          <div key={item.id} className="flex min-w-0 w-full items-center gap-3 rounded-md border border-zinc-200 bg-white p-3">
+            {content}
           </div>
         );
       })}
@@ -3382,7 +3983,7 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-[#dedbd2] bg-white p-3 shadow-sm sm:p-4">
+    <section className="min-w-0 rounded-lg border border-[#dedbd2] bg-white p-3 shadow-sm sm:p-4">
       <div className="mb-3 flex min-h-10 items-center justify-between gap-3">
         <h2 className="text-base font-semibold text-zinc-950">{title}</h2>
         {action}
@@ -3865,6 +4466,37 @@ function readDemoSession(): Session | null {
   }
 }
 
+function readDemoState(): DemoPortalState | null {
+  if (typeof window === "undefined" || isSupabaseBrowserConfigured()) {
+    return null;
+  }
+
+  const storedState = window.localStorage.getItem("approveLyPortalState");
+
+  if (!storedState) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(storedState) as Partial<DemoPortalState>;
+
+    if (
+      !Array.isArray(parsed.activity) ||
+      !Array.isArray(parsed.campaigns) ||
+      !Array.isArray(parsed.comments) ||
+      !Array.isArray(parsed.contentItems) ||
+      !Array.isArray(parsed.folders)
+    ) {
+      return null;
+    }
+
+    return parsed as DemoPortalState;
+  } catch {
+    window.localStorage.removeItem("approveLyPortalState");
+    return null;
+  }
+}
+
 function syncCommentCounts(items: PortalContent[], comments: PortalComment[]) {
   return items.map((item) => {
     const relatedComments = comments.filter((comment) => comment.contentId === item.id);
@@ -3956,22 +4588,44 @@ function initials(name: string) {
     .join("");
 }
 
-function sizeToGb(size: string) {
+function sizeToBytes(size: string) {
   const value = Number.parseFloat(size);
 
   if (Number.isNaN(value)) {
     return 0;
   }
 
-  if (size.toLowerCase().includes("mb")) {
-    return value / 1024;
+  const normalized = size.toLowerCase();
+
+  if (normalized.includes("gb")) {
+    return value * 1024 * 1024 * 1024;
   }
 
-  if (size.toLowerCase().includes("kb")) {
-    return value / (1024 * 1024);
+  if (normalized.includes("mb")) {
+    return value * 1024 * 1024;
+  }
+
+  if (normalized.includes("kb")) {
+    return value * 1024;
   }
 
   return value;
+}
+
+function formatStorage(bytes: number) {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+  }
+
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  }
+
+  if (bytes >= 1024) {
+    return `${Math.round(bytes / 1024)}KB`;
+  }
+
+  return "0MB";
 }
 
 function formatBytes(bytes: number) {

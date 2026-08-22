@@ -42,8 +42,8 @@ export function getDemoBootstrap(profile?: Profile) {
   }));
 
   const activity: PortalActivity[] = [
-    { id: "activity-1", kind: "bell", title: "Comment bundle sent", meta: "11 minutes ago" },
-    { id: "activity-2", kind: "check", title: "Founder short approved", meta: "42 minutes ago" },
+    { id: "activity-1", kind: "bell", title: "Comment bundle sent for Summer drop reveal", meta: "11 minutes ago" },
+    { id: "activity-2", kind: "check", title: "Founder short Q3 approved", meta: "42 minutes ago" },
     { id: "activity-3", kind: "archive", title: "3 files ready for final download", meta: "Today" },
   ];
 

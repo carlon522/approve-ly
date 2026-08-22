@@ -85,7 +85,7 @@ export const contentItems: ContentItem[] = [
     due: "Today, 16:00",
     owner: "Maya Chen",
     version: "V3",
-    size: "1.4GB",
+    size: "1.1MB",
     comments: 8,
     unresolved: 2,
     progress: 68,
@@ -102,7 +102,7 @@ export const contentItems: ContentItem[] = [
     due: "Tomorrow, 10:00",
     owner: "Noah Patel",
     version: "V1",
-    size: "886MB",
+    size: "1.1MB",
     comments: 3,
     unresolved: 0,
     progress: 100,
@@ -119,7 +119,7 @@ export const contentItems: ContentItem[] = [
     due: "Aug 24, 09:30",
     owner: "Lina Torres",
     version: "V2",
-    size: "212MB",
+    size: "1.1MB",
     comments: 0,
     unresolved: 0,
     progress: 100,
@@ -136,7 +136,7 @@ export const contentItems: ContentItem[] = [
     due: "Aug 26, 12:00",
     owner: "Elliot Ross",
     version: "V4",
-    size: "2.1GB",
+    size: "1.1MB",
     comments: 16,
     unresolved: 0,
     progress: 100,
@@ -146,10 +146,11 @@ export const contentItems: ContentItem[] = [
 ];
 
 export const folders = [
-  { name: "Paid social", count: 21 },
-  { name: "Organic", count: 14 },
-  { name: "Creator edits", count: 9 },
-  { name: "Founder content", count: 6 },
+  { name: "Paid social", count: 1 },
+  { name: "Organic", count: 1 },
+  { name: "Creator edits", count: 0 },
+  { name: "Founder content", count: 1 },
+  { name: "Launch", count: 1 },
 ];
 
 export const campaigns = [

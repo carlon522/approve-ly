@@ -1,5 +1,5 @@
-import PortalClient from "../portal-client";
+import { redirect } from "next/navigation";
 
 export default function InboxPage() {
-  return <PortalClient initialView="Inbox" />;
+  redirect("/comments-received");
 }

@@ -311,6 +311,115 @@ export async function createContent(profile: Profile, input: CreateContentInput)
   return mapContent(data, campaignMap, companyMap);
 }
 
+export async function deleteContent(profile: Profile, contentId: string) {
+  assertCanCreate(profile);
+
+  const content = await getContentRow(contentId);
+
+  if (content.storage_key && isStorageConfigured()) {
+    await deleteStoredObject(content.storage_key);
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase.from("content_items").delete().eq("id", contentId);
+
+  if (error) {
+    throw new ApiError(error.message, 500);
+  }
+
+  await logActivity("archive", `${content.title} deleted`);
+  return { id: contentId };
+}
+
+export async function deleteCampaign(profile: Profile, campaignId: string) {
+  assertCanCreate(profile);
+
+  const supabase = getSupabaseAdmin();
+  const { data: contentRows, error: contentError } = await supabase
+    .from("content_items")
+    .select("id,title,storage_key")
+    .eq("campaign_id", campaignId);
+
+  if (contentError) {
+    throw new ApiError(contentError.message, 500);
+  }
+
+  if (isStorageConfigured()) {
+    for (const content of contentRows ?? []) {
+      if (content.storage_key) {
+        await deleteStoredObject(content.storage_key);
+      }
+    }
+  }
+
+  const { data: campaign, error: campaignError } = await supabase
+    .from("campaigns")
+    .select("id,name")
+    .eq("id", campaignId)
+    .single();
+
+  if (campaignError || !campaign) {
+    throw new ApiError(campaignError?.message ?? "Campaign not found.", 404);
+  }
+
+  const { error: deleteError } = await supabase.from("campaigns").delete().eq("id", campaignId);
+
+  if (deleteError) {
+    throw new ApiError(deleteError.message, 500);
+  }
+
+  await logActivity("archive", `${campaign.name} deleted`);
+  return { id: campaignId };
+}
+
+export async function deleteFolder(profile: Profile, folderId: string) {
+  assertCanCreate(profile);
+
+  const supabase = getSupabaseAdmin();
+  const { data: folder, error: folderError } = await supabase
+    .from("folders")
+    .select("id,campaign_id,name")
+    .eq("id", folderId)
+    .single();
+
+  if (folderError || !folder) {
+    throw new ApiError(folderError?.message ?? "Folder not found.", 404);
+  }
+
+  const { count: exactCount, error: exactError } = await supabase
+    .from("content_items")
+    .select("id", { count: "exact", head: true })
+    .eq("campaign_id", folder.campaign_id)
+    .eq("folder", folder.name);
+
+  if (exactError) {
+    throw new ApiError(exactError.message, 500);
+  }
+
+  const { count: nestedCount, error: nestedError } = await supabase
+    .from("content_items")
+    .select("id", { count: "exact", head: true })
+    .eq("campaign_id", folder.campaign_id)
+    .like("folder", `${folder.name} /%`);
+
+  if (nestedError) {
+    throw new ApiError(nestedError.message, 500);
+  }
+
+  if ((exactCount ?? 0) + (nestedCount ?? 0) > 0) {
+    throw new ApiError("Move or delete the content in this folder before deleting it.", 409);
+  }
+
+  const { error } = await supabase.from("folders").delete().eq("id", folderId);
+
+  if (error) {
+    throw new ApiError(error.message, 500);
+  }
+
+  await logActivity("archive", `${folder.name} folder deleted`);
+  return { id: folderId };
+}
+
 export async function addComment(profile: Profile, contentId: string, input: {
   anchor: string;
   body: string;
@@ -319,6 +428,7 @@ export async function addComment(profile: Profile, contentId: string, input: {
 
   const supabase = getSupabaseAdmin();
   const content = await getContentRow(contentId);
+  await assertContentAccess(profile, content);
   const { data: comment, error } = await supabase
     .from("content_comments")
     .insert({
@@ -364,10 +474,13 @@ export async function resolveComment(profile: Profile, commentId: string) {
     throw new ApiError(existingError?.message ?? "Comment not found.", 404);
   }
 
+  const existingContent = await getContentRow(existing.content_id);
+  await assertContentAccess(profile, existingContent);
+
   if (existing.status === "Resolved") {
     return {
       comment: mapComment(existing),
-      item: await mapContentWithLookups(await getContentRow(existing.content_id)),
+      item: await mapContentWithLookups(existingContent),
     };
   }
 
@@ -382,10 +495,9 @@ export async function resolveComment(profile: Profile, commentId: string) {
     throw new ApiError(error.message, 500);
   }
 
-  const content = await getContentRow(existing.content_id);
-  const nextUnresolved = Math.max(0, (content.unresolved_count ?? 0) - 1);
-  const updated = await updateContentCounts(content, {
-    nextStatus: nextUnresolved === 0 ? "In Review" : content.status,
+  const nextUnresolved = Math.max(0, (existingContent.unresolved_count ?? 0) - 1);
+  const updated = await updateContentCounts(existingContent, {
+    nextStatus: nextUnresolved === 0 ? "In Review" : existingContent.status,
     unresolvedDelta: -1,
   });
 
@@ -401,6 +513,7 @@ export async function approveContent(profile: Profile, contentId: string) {
   assertCanApprove(profile);
 
   const content = await getContentRow(contentId);
+  await assertContentAccess(profile, content);
 
   if ((content.unresolved_count ?? 0) > 0) {
     throw new ApiError("Resolve open comments before approval.", 409);
@@ -432,6 +545,7 @@ export async function archiveContent(profile: Profile, contentId: string) {
 
 export async function shareContent(profile: Profile, contentId: string, mode: "Private" | "Public") {
   const content = await getContentRow(contentId);
+  await assertContentAccess(profile, content);
   const supabase = getSupabaseAdmin();
   const token = randomUUID();
 
@@ -467,6 +581,7 @@ export async function shareContent(profile: Profile, contentId: string, mode: "P
 
 export async function downloadContent(profile: Profile, contentId: string, final: boolean) {
   const content = await getContentRow(contentId);
+  await assertContentAccess(profile, content);
   let nextItem = await mapContentWithLookups(content);
 
   if (final && content.status === "Approved") {
@@ -652,7 +767,7 @@ async function ensureFolder(campaignId: string, name: string) {
 }
 
 async function getVisibleCampaignIds(profile: Profile, campaigns: CampaignRow[]) {
-  if (profile.role !== "Approver") {
+  if (profile.role === "Creative") {
     return new Set(campaigns.map((campaign) => campaign.id));
   }
 
@@ -667,6 +782,28 @@ async function getVisibleCampaignIds(profile: Profile, campaigns: CampaignRow[])
   }
 
   return new Set((data ?? []).map((item) => item.campaign_id as string));
+}
+
+async function assertContentAccess(profile: Profile, content: ContentRow) {
+  if (profile.role === "Creative") {
+    return;
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("campaign_members")
+    .select("campaign_id")
+    .eq("campaign_id", content.campaign_id)
+    .eq("profile_id", profile.id)
+    .maybeSingle();
+
+  if (error) {
+    throw new ApiError(error.message, 500);
+  }
+
+  if (!data) {
+    throw new ApiError("This content is outside your assigned campaigns.", 403);
+  }
 }
 
 async function loadFolders(campaignIds: string[]): Promise<PortalFolder[]> {

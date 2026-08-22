@@ -27,3 +27,19 @@ a {
   background: #d9fbe8;
   color: #14532d;
 }
+
+@keyframes confetti {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+
+  12% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(0, 70vh, 0) rotate(620deg);
+  }
+}

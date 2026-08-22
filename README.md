@@ -31,6 +31,19 @@ Required production env vars:
 - `APP_BASE_URL`
 - `CRON_SECRET`
 
+### Google Auth
+
+The app includes the Supabase OAuth callback at `/auth/callback` and the sign-in button uses it automatically. To enable the provider:
+
+1. In Google Cloud Console, create a Web OAuth client and add your Supabase callback URL: `https://<project-ref>.supabase.co/auth/v1/callback`.
+2. In Supabase, open Authentication > Providers > Google, enable it, and paste the Google client ID and secret.
+3. In Supabase Authentication > URL Configuration, set the Site URL to `https://approve-ly.onrender.com` and add these redirect URLs:
+   - `https://approve-ly.onrender.com/auth/callback`
+   - `http://localhost:3000/auth/callback`
+4. Test with a real Google account. Supabase creates the profile on first sign-in; set its `profiles.role` and add its `campaign_members` rows for Approver or Assistant access.
+
+Google client secrets belong in Supabase, not in this repository or Render environment variables.
+
 ## Product Docs
 
 - `PRODUCT_SPEC.md`: product decisions and scope.
