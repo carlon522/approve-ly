@@ -21,6 +21,7 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - Creatives can switch between Creative, Approver, and Assistant interface views for review and handoff checks; this does not change their persisted permissions.
 - The Account section shows the signed-in profile, current role, capability summary, and accessible workspace snapshot.
 - Primary navigation is Dashboard, Campaigns, Messages, Archive, and Account; Approver view keeps its focused Content to approve destination alongside Dashboard and Account.
+- The persistent top bar keeps company and campaign workspace selectors available on every non-immersive page; the selected company, campaign, and folder context survives route changes and browser refreshes for the current session.
 
 ## Content Types
 

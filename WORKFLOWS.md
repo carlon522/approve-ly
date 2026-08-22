@@ -28,6 +28,13 @@
 3. The server fetches independent workspace slices in parallel and uses the content result to derive folder counts.
 4. The fresh response replaces the cached snapshot and records no demo data in live mode.
 
+## Workspace Context
+
+1. The top bar exposes the companies and campaigns available to the current role from every non-immersive screen.
+2. Changing company selects its first available campaign, clears the folder filter, and returns to Dashboard.
+3. Changing campaign opens that campaign workspace.
+4. Company, campaign, and folder selections are saved in session storage so route changes and refreshes keep the user's working context.
+
 ## Campaign Approver Assignment
 
 1. A Creative opens a campaign and selects Add approver from the Campaign team panel.

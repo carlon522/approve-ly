@@ -88,6 +88,12 @@ type Session = {
   roleConfirmed?: boolean;
 };
 
+type WorkspaceSelection = {
+  campaign: string;
+  company: string;
+  folder: string;
+};
+
 type PortalCampaign = (typeof campaigns)[number] & {
   id: string;
 };
@@ -339,9 +345,21 @@ export default function PortalClient({
   const [contentList, setContentList] = useState<PortalContent[]>(liveAuth ? [] : contentSeed);
   const [commentList, setCommentList] = useState<PortalComment[]>(liveAuth ? [] : commentSeed);
   const [activityList, setActivityList] = useState<PortalActivity[]>(liveAuth ? [] : activitySeed);
-  const [selectedCompany, setSelectedCompany] = useState(liveAuth ? "" : campaignSeed[0].company);
-  const [selectedCampaign, setSelectedCampaign] = useState(liveAuth ? "" : campaignSeed[0].name);
-  const [selectedFolder, setSelectedFolder] = useState("All folders");
+  const storedWorkspaceSelection = readStoredWorkspaceSelection();
+  const [selectedCompany, setSelectedCompany] = useState(
+    storedWorkspaceSelection.company || (liveAuth ? "" : campaignSeed[0].company),
+  );
+  const [selectedCampaign, setSelectedCampaign] = useState(
+    storedWorkspaceSelection.campaign || (liveAuth ? "" : campaignSeed[0].name),
+  );
+  const [selectedFolder, setSelectedFolder] = useState(
+    storedWorkspaceSelection.folder || "All folders",
+  );
+  const workspaceSelectionRef = useRef<WorkspaceSelection>({
+    campaign: selectedCampaign,
+    company: selectedCompany,
+    folder: selectedFolder,
+  });
   const [activeItemId, setActiveItemId] = useState(liveAuth ? "" : contentSeed[0].id);
   const [activePlatform, setActivePlatform] = useState<Platform>("Instagram");
   const [activeView, setActiveView] = useState<View>(
@@ -408,9 +426,23 @@ export default function PortalClient({
       payload.contentItems.find((item) => item.campaign === firstCampaign?.name) ??
       payload.contentItems[0];
 
-    if (firstCampaign) {
-      setSelectedCompany(firstCampaign.company);
-      setSelectedCampaign(firstCampaign.name);
+    const rememberedCampaign = payload.campaigns.find(
+      (campaign) =>
+        campaign.company === workspaceSelectionRef.current.company &&
+        campaign.name === workspaceSelectionRef.current.campaign,
+    );
+    const rememberedCompanyCampaign = payload.campaigns.find(
+      (campaign) => campaign.company === workspaceSelectionRef.current.company,
+    );
+    const preferredCampaign =
+      payload.campaigns.find((campaign) => campaign.id === initialCampaignId) ??
+      rememberedCampaign ??
+      rememberedCompanyCampaign ??
+      firstCampaign;
+
+    if (preferredCampaign) {
+      setSelectedCompany(preferredCampaign.company);
+      setSelectedCampaign(preferredCampaign.name);
     }
 
     if (firstContent) {
@@ -445,6 +477,19 @@ export default function PortalClient({
 
     return () => window.clearTimeout(timer);
   }, [liveAuth]);
+
+  useEffect(() => {
+    workspaceSelectionRef.current = {
+      campaign: selectedCampaign,
+      company: selectedCompany,
+      folder: selectedFolder,
+    };
+
+    window.sessionStorage.setItem(
+      "approveLyWorkspaceSelection",
+      JSON.stringify(workspaceSelectionRef.current),
+    );
+  }, [selectedCampaign, selectedCompany, selectedFolder]);
 
   useEffect(() => {
     if (liveAuth || !demoStateReady) {
@@ -1095,6 +1140,10 @@ export default function PortalClient({
     window.sessionStorage.removeItem("approveLyDemoSession");
     window.sessionStorage.removeItem("approveLyViewRole");
     window.sessionStorage.removeItem("approveLyImmersionMode");
+    window.sessionStorage.removeItem("approveLyWorkspaceSelection");
+    setSelectedCompany(liveAuth ? "" : campaignSeed[0].company);
+    setSelectedCampaign(liveAuth ? "" : campaignSeed[0].name);
+    setSelectedFolder("All folders");
     setSession(null);
     setViewRole("Creative");
     setImmersionMode(false);
@@ -1886,6 +1935,14 @@ export default function PortalClient({
     setSelectedCompany(campaignSeed[0].company);
     setSelectedCampaign(campaignSeed[0].name);
     setSelectedFolder("All folders");
+    window.sessionStorage.setItem(
+      "approveLyWorkspaceSelection",
+      JSON.stringify({
+        campaign: campaignSeed[0].name,
+        company: campaignSeed[0].company,
+        folder: "All folders",
+      } satisfies WorkspaceSelection),
+    );
     setActiveItemId(contentSeed[0].id);
     setActivePlatform("Instagram");
     notify("Demo data reset", "neutral");
@@ -1902,6 +1959,23 @@ export default function PortalClient({
     setSelectedCampaign(campaign.name);
     setSelectedFolder("All folders");
     router.push(`/campaigns/${encodeURIComponent(campaign.id)}`);
+  };
+
+  const handleWorkspaceCompanyChange = (company: string) => {
+    setSelectedCompany(company);
+    setSelectedCampaign(firstCampaignForCompany(company));
+    setSelectedFolder("All folders");
+    setActiveView("Dashboard");
+    router.push(viewRoutes.Dashboard);
+    notify(`Switched to ${company}`, "neutral");
+  };
+
+  const handleWorkspaceCampaignChange = (campaignName: string) => {
+    const campaign = accessibleCampaigns.find((item) => item.name === campaignName);
+
+    if (campaign) {
+      openProject(campaign);
+    }
   };
 
   const openFolder = (folder: PortalFolder) => {
@@ -2064,6 +2138,17 @@ export default function PortalClient({
           />
         ) : null}
         <section className={`flex min-w-0 flex-1 flex-col ${immersiveApproval ? "gap-0" : "gap-4"}`}>
+          {!immersiveApproval ? (
+            <WorkspaceTopBar
+              campaigns={accessibleCampaigns}
+              companies={companies}
+              onCampaignChange={handleWorkspaceCampaignChange}
+              onCompanyChange={handleWorkspaceCompanyChange}
+              role={activeRole}
+              selectedCampaign={selectedCampaign}
+              selectedCompany={selectedCompany}
+            />
+          ) : null}
           {isProjectPage ? (
             <>
               {projectStage === "content" ? (
@@ -2219,20 +2304,13 @@ export default function PortalClient({
                 <>
                   <DashboardHeader
                     canCreate={capabilities.canCreate}
-                    companies={companies}
                     name={session.name}
-                    onCompanyChange={(company) => {
-                      setSelectedCompany(company);
-                      setSelectedCampaign(firstCampaignForCompany(company));
-                      setSelectedFolder("All folders");
-                    }}
                     onNewUpload={() => {
                       if (requirePermission(capabilities.canCreate, "Only Creatives can upload.")) {
                         setUploadOpen(true);
                       }
                     }}
                     role={activeRole}
-                    selectedCompany={selectedCompany}
                   />
                   <DashboardGrid metrics={metrics} />
                   <DashboardStatusOverview
@@ -2857,22 +2935,81 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
   );
 }
 
-function DashboardHeader({
-  canCreate,
+function WorkspaceTopBar({
+  campaigns,
   companies,
-  name,
+  onCampaignChange,
   onCompanyChange,
-  onNewUpload,
   role,
+  selectedCampaign,
   selectedCompany,
 }: {
-  canCreate: boolean;
+  campaigns: PortalCampaign[];
   companies: string[];
-  name: string;
+  onCampaignChange: (campaign: string) => void;
   onCompanyChange: (company: string) => void;
+  role: Role;
+  selectedCampaign: string;
+  selectedCompany: string;
+}) {
+  const companyOptions = companies.length ? companies : ["Loading workspace"];
+  const activeCompany = companies.includes(selectedCompany) ? selectedCompany : companyOptions[0];
+  const campaignOptions = campaigns
+    .filter((campaign) => campaign.company === activeCompany)
+    .map((campaign) => campaign.name);
+  const safeCampaignOptions = campaignOptions.length ? campaignOptions : ["Loading campaigns"];
+  const activeCampaign = campaignOptions.includes(selectedCampaign)
+    ? selectedCampaign
+    : safeCampaignOptions[0];
+  const workspaceReady = companies.length > 0;
+
+  return (
+    <header className="sticky top-0 z-20 -mx-1 border-b border-zinc-200/80 bg-[#f7f7f4]/90 px-1 py-2 backdrop-blur-xl sm:-mx-2 sm:px-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="grid size-9 shrink-0 place-items-center rounded-md bg-zinc-950 text-white shadow-sm">
+            <Building2 aria-hidden className="size-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              Creative workspace
+            </p>
+            <p className="truncate text-sm font-semibold text-zinc-950">{role} view</p>
+          </div>
+        </div>
+        <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:max-w-2xl sm:flex-1 sm:justify-end">
+          <SelectField
+            disabled={!workspaceReady}
+            icon={Building2}
+            label="Company"
+            onChange={onCompanyChange}
+            options={companyOptions}
+            value={activeCompany}
+          />
+          <SelectField
+            disabled={!workspaceReady || campaignOptions.length === 0}
+            icon={Folder}
+            label="Campaign"
+            onChange={onCampaignChange}
+            options={safeCampaignOptions}
+            value={activeCampaign}
+          />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function DashboardHeader({
+  canCreate,
+  name,
+  onNewUpload,
+  role,
+}: {
+  canCreate: boolean;
+  name: string;
   onNewUpload: () => void;
   role: Role;
-  selectedCompany: string;
 }) {
   return (
     <header className="flex flex-col gap-5 border-b border-zinc-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
@@ -2887,25 +3024,16 @@ function DashboardHeader({
       </div>
       <div className="flex flex-col gap-2 sm:items-end">
         <span className="text-xs font-semibold uppercase tracking-wide text-zinc-400">{role} workspace</span>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <SelectField
-            icon={Building2}
-            label="Company"
-            onChange={onCompanyChange}
-            options={companies}
-            value={selectedCompany}
-          />
-          {canCreate ? (
-            <button
-              className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
-              onClick={onNewUpload}
-              type="button"
-            >
-              <Plus aria-hidden className="size-4" />
-              New upload
-            </button>
-          ) : null}
-        </div>
+        {canCreate ? (
+          <button
+            className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-zinc-950 px-4 text-sm font-semibold text-white transition hover:bg-zinc-800"
+            onClick={onNewUpload}
+            type="button"
+          >
+            <Plus aria-hidden className="size-4" />
+            New upload
+          </button>
+        ) : null}
       </div>
     </header>
   );
@@ -3942,12 +4070,14 @@ function mobileNavLabel(label: View) {
 }
 
 function SelectField({
+  disabled = false,
   icon: Icon,
   label,
   onChange,
   options,
   value,
 }: {
+  disabled?: boolean;
   icon: LucideIcon;
   label: string;
   onChange: (value: string) => void;
@@ -3955,11 +4085,12 @@ function SelectField({
   value: string;
 }) {
   return (
-    <label className="relative inline-flex h-11 min-w-0 items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-800 transition focus-within:border-zinc-400 sm:min-w-48">
+    <label className={`relative inline-flex h-11 min-w-0 w-full items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-800 transition focus-within:border-zinc-400 sm:min-w-48 ${disabled ? "cursor-wait opacity-60" : ""}`}>
       <Icon aria-hidden className="size-4 shrink-0 text-zinc-500" />
       <span className="sr-only">{label}</span>
       <select
-        className="min-w-0 flex-1 appearance-none bg-transparent pr-6 outline-none"
+        className="min-w-0 flex-1 appearance-none bg-transparent pr-6 outline-none disabled:cursor-wait"
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         value={value}
       >
@@ -6087,6 +6218,31 @@ function readStoredViewRole(): Role {
   return storedRole === "Approver" || storedRole === "Assistant" || storedRole === "Creative"
     ? storedRole
     : "Creative";
+}
+
+function readStoredWorkspaceSelection(): Partial<WorkspaceSelection> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  const storedSelection = window.sessionStorage.getItem("approveLyWorkspaceSelection");
+
+  if (!storedSelection) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(storedSelection) as Partial<WorkspaceSelection>;
+
+    return {
+      campaign: typeof parsed.campaign === "string" ? parsed.campaign : undefined,
+      company: typeof parsed.company === "string" ? parsed.company : undefined,
+      folder: typeof parsed.folder === "string" ? parsed.folder : undefined,
+    };
+  } catch {
+    window.sessionStorage.removeItem("approveLyWorkspaceSelection");
+    return {};
+  }
 }
 
 function readStoredImmersionMode() {

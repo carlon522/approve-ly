@@ -9,7 +9,7 @@ Use App Router routes and keep screens focused on real workflows.
 
 ## Authenticated Routes
 
-- `/dashboard`: company selector, campaign selector, stats, due dates, recent activity.
+- `/dashboard`: persistent top-bar company and campaign selectors, stats, due dates, recent activity.
 - `/messages`: comment and review-message summary for the workspace.
 - `/companies`: companies the user can access.
 - `/companies/new`: create company for Creatives and Super Admin.
@@ -24,6 +24,8 @@ Use App Router routes and keep screens focused on real workflows.
 - `/account`: signed-in profile, role, permission summary, and workspace snapshot.
 - `/settings/profile`: user profile and notifications.
 - `/admin`: Super Admin global console.
+
+Workspace context is selected from the top bar on authenticated screens. Company changes reset the campaign and folder context and return to the dashboard; campaign changes open that campaign. The selection is retained in the current browser session while navigating between routes.
 
 ## API Boundaries
 
