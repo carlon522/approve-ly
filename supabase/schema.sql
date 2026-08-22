@@ -5,6 +5,7 @@ create table if not exists public.profiles (
   email text not null,
   name text not null,
   role text not null default 'Creative' check (role in ('Creative', 'Approver', 'Assistant')),
+  role_confirmed boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -167,12 +168,13 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, name, role)
+  insert into public.profiles (id, email, name, role, role_confirmed)
   values (
     new.id,
     coalesce(new.email, ''),
     coalesce(new.raw_user_meta_data->>'name', new.email, 'User'),
-    coalesce(new.raw_app_meta_data->>'role', 'Creative')
+    coalesce(new.raw_app_meta_data->>'role', 'Creative'),
+    false
   )
   on conflict (id) do nothing;
 

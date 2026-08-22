@@ -25,6 +25,7 @@ Use App Router routes and keep screens focused on real workflows.
 
 ## API Boundaries
 
+- `PATCH /api/profile/role`: persist the role selected during first-login onboarding; can only be used once before `role_confirmed` is true.
 - `/api/uploads/sign`: create signed upload or video direct-upload URL.
 - `/api/uploads/complete`: record uploaded files and metadata.
 - `/api/downloads/sign`: create signed download URL.

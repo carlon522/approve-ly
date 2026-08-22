@@ -47,7 +47,7 @@ export async function requireProfile(request: NextRequest): Promise<Profile> {
 
   const { data: existingProfile, error: profileError } = await supabase
     .from("profiles")
-    .select("id,email,name,role")
+    .select("id,email,name,role,role_confirmed")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -61,6 +61,7 @@ export async function requireProfile(request: NextRequest): Promise<Profile> {
       id: existingProfile.id,
       name: existingProfile.name ?? user.email ?? "User",
       role: normalizeRole(existingProfile.role),
+      roleConfirmed: Boolean(existingProfile.role_confirmed),
     };
   }
 
@@ -72,12 +73,13 @@ export async function requireProfile(request: NextRequest): Promise<Profile> {
         ? user.user_metadata.name
         : user.email ?? "User",
     role: normalizeRole(user.app_metadata?.role),
+    role_confirmed: false,
   };
 
   const { data: insertedProfile, error: insertError } = await supabase
     .from("profiles")
     .insert(createdProfile)
-    .select("id,email,name,role")
+    .select("id,email,name,role,role_confirmed")
     .single();
 
   if (insertError) {
@@ -89,6 +91,7 @@ export async function requireProfile(request: NextRequest): Promise<Profile> {
     id: insertedProfile.id,
     name: insertedProfile.name,
     role: normalizeRole(insertedProfile.role),
+    roleConfirmed: Boolean(insertedProfile.role_confirmed),
   };
 }
 

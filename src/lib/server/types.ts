@@ -8,6 +8,7 @@ export type Profile = {
   email: string;
   name: string;
   role: Role;
+  roleConfirmed: boolean;
 };
 
 export type PortalCampaign = {

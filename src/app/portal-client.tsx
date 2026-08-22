@@ -63,7 +63,7 @@ import {
   createBrowserSupabaseClient,
   isSupabaseBrowserConfigured,
 } from "@/lib/supabase/browser";
-import type { BootstrapPayload } from "@/lib/server/types";
+import type { BootstrapPayload, Profile } from "@/lib/server/types";
 
 type Role = "Creative" | "Approver" | "Assistant";
 type View =
@@ -83,6 +83,7 @@ type Session = {
   name: string;
   email: string;
   role: Role;
+  roleConfirmed?: boolean;
 };
 
 type PortalCampaign = (typeof campaigns)[number] & {
@@ -340,6 +341,8 @@ export default function PortalClient({
   }>({ itemId: "", loading: false });
   const [workspaceLoading, setWorkspaceLoading] = useState(liveAuth);
   const [workspaceSyncing, setWorkspaceSyncing] = useState(liveAuth);
+  const [roleSetupSaving, setRoleSetupSaving] = useState(false);
+  const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [demoStateReady, setDemoStateReady] = useState(false);
 
@@ -361,6 +364,7 @@ export default function PortalClient({
             email: payload.profile.email,
             name: payload.profile.name,
             role: payload.profile.role,
+            roleConfirmed: payload.profile.roleConfirmed,
           }
         : current,
     );
@@ -445,6 +449,7 @@ export default function PortalClient({
             ? data.session.user.user_metadata.name
             : data.session.user.email,
         role: "Creative",
+        roleConfirmed: undefined,
       });
     }
 
@@ -466,6 +471,7 @@ export default function PortalClient({
             ? nextSession.user.user_metadata.name
             : nextSession.user.email,
         role: "Creative",
+        roleConfirmed: undefined,
       });
     });
 
@@ -513,6 +519,7 @@ export default function PortalClient({
         email: payload.profile.email,
         name: payload.profile.name,
         role: "Assistant",
+        roleConfirmed: true,
       });
 
       const firstCampaign = payload.campaigns[0];
@@ -589,7 +596,14 @@ export default function PortalClient({
     return () => {
       cancelled = true;
     };
-  }, [applyWorkspacePayload, initialCampaignId, initialContentId, session?.accessToken, session?.email]);
+  }, [
+    applyWorkspacePayload,
+    initialCampaignId,
+    initialContentId,
+    session?.accessToken,
+    session?.email,
+    workspaceRefreshKey,
+  ]);
 
   const notify = (message: string, tone: ToastTone = "success") => {
     const id = Date.now();
@@ -866,6 +880,55 @@ export default function PortalClient({
       notify(message, "warning");
       return null;
     }
+  };
+
+  const handleRoleSelection = async (role: Role) => {
+    if (!session || roleSetupSaving) {
+      return;
+    }
+
+    setRoleSetupSaving(true);
+
+    if (session.accessToken) {
+      const response = await callBackend<{ profile: Profile }>("/api/profile/role", {
+        body: { role },
+        method: "PATCH",
+      });
+
+      if (!response?.profile) {
+        setRoleSetupSaving(false);
+        return;
+      }
+
+      window.sessionStorage.removeItem(workspaceCacheKey(session.email));
+      setSession((current) =>
+        current
+          ? {
+              ...current,
+              email: response.profile.email,
+              name: response.profile.name,
+              role: response.profile.role,
+              roleConfirmed: response.profile.roleConfirmed,
+            }
+          : current,
+      );
+      setWorkspaceLoading(true);
+      setWorkspaceSyncing(true);
+      setWorkspaceRefreshKey((value) => value + 1);
+      setActiveView(role === "Approver" ? "Content to approve" : "Dashboard");
+      setRoleSetupSaving(false);
+      router.replace("/dashboard");
+      notify(`Workspace set up as ${role}`);
+      return;
+    }
+
+    const nextSession = { ...session, role, roleConfirmed: true };
+    window.sessionStorage.setItem("approveLyDemoSession", JSON.stringify(nextSession));
+    setSession(nextSession);
+    setActiveView(role === "Approver" ? "Content to approve" : "Dashboard");
+    setRoleSetupSaving(false);
+    router.replace("/dashboard");
+    notify(`Workspace set up as ${role}`);
   };
 
   const handleLogin = (nextSession: Session) => {
@@ -1704,6 +1767,20 @@ export default function PortalClient({
     return <LoginScreen onLogin={handleLogin} />;
   }
 
+  if (session.roleConfirmed === false) {
+    return (
+      <RoleSetupScreen
+        name={session.name}
+        onSubmit={(role) => void handleRoleSelection(role)}
+        saving={roleSetupSaving}
+      />
+    );
+  }
+
+  if (liveAuth && session.accessToken && session.roleConfirmed === undefined) {
+    return <RoleSetupLoadingScreen name={session.name} />;
+  }
+
   return (
     <main className="min-h-screen scroll-pb-28 bg-[#f7f7f4] pb-28 text-zinc-950 lg:pb-0">
       <div
@@ -2081,13 +2158,141 @@ export default function PortalClient({
   );
 }
 
+const roleSetupOptions: Array<{
+  role: Role;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+}> = [
+  {
+    role: "Creative",
+    label: "Creative",
+    description: "Create campaigns, upload content, and manage your projects.",
+    icon: Upload,
+  },
+  {
+    role: "Approver",
+    label: "Approver",
+    description: "Review assigned campaigns, comment, request changes, and approve.",
+    icon: Check,
+  },
+  {
+    role: "Assistant",
+    label: "Assistant",
+    description: "View assigned work and download approved content.",
+    icon: Eye,
+  },
+];
+
+function RoleSetupScreen({
+  name,
+  onSubmit,
+  saving,
+}: {
+  name: string;
+  onSubmit: (role: Role) => void;
+  saving: boolean;
+}) {
+  const [selectedRole, setSelectedRole] = useState<Role>("Creative");
+
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#f7f7f4] px-4 py-8 text-zinc-950 sm:px-6">
+      <section className="w-full max-w-xl rounded-lg border border-[#dedbd2] bg-white p-5 shadow-sm sm:p-8">
+        <div className="flex items-center gap-3">
+          <div className="grid size-11 place-items-center rounded-md bg-zinc-950 text-sm font-semibold text-white">
+            A
+          </div>
+          <div>
+            <p className="text-base font-semibold">Approve.ly</p>
+            <p className="text-sm text-zinc-500">One last step before your workspace</p>
+          </div>
+        </div>
+
+        <div className="mt-10">
+          <p className="text-sm font-semibold text-emerald-700">Welcome, {name}</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
+            What is your role?
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-zinc-500">
+            Choose the view that matches how you work. You can start using the portal as soon as you continue.
+          </p>
+        </div>
+
+        <div className="mt-7 grid gap-3">
+          {roleSetupOptions.map((option) => {
+            const Icon = option.icon;
+            const selected = selectedRole === option.role;
+
+            return (
+              <button
+                aria-pressed={selected}
+                className={`flex min-h-20 items-center gap-4 rounded-md border p-4 text-left transition ${
+                  selected
+                    ? "border-zinc-950 bg-zinc-950 text-white shadow-sm"
+                    : "border-zinc-200 bg-white text-zinc-950 hover:border-zinc-400"
+                }`}
+                disabled={saving}
+                key={option.role}
+                onClick={() => setSelectedRole(option.role)}
+                type="button"
+              >
+                <span
+                  className={`grid size-10 shrink-0 place-items-center rounded-md ${
+                    selected ? "bg-white/15" : "bg-zinc-100"
+                  }`}
+                >
+                  <Icon aria-hidden className={`size-5 ${selected ? "text-white" : "text-zinc-700"}`} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">{option.label}</span>
+                  <span className={`mt-1 block text-xs leading-5 ${selected ? "text-zinc-300" : "text-zinc-500"}`}>
+                    {option.description}
+                  </span>
+                </span>
+                {selected ? <CheckCircle2 aria-hidden className="ml-auto size-5 shrink-0" /> : null}
+              </button>
+            );
+          })}
+        </div>
+
+        <button
+          className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60"
+          disabled={saving}
+          onClick={() => onSubmit(selectedRole)}
+          type="button"
+        >
+          {saving ? "Setting up your workspace..." : "Continue to workspace"}
+          {!saving ? <ChevronRight aria-hidden className="size-4" /> : null}
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function RoleSetupLoadingScreen({ name }: { name: string }) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#f7f7f4] px-4 py-8 text-zinc-950">
+      <section className="w-full max-w-md rounded-lg border border-[#dedbd2] bg-white p-6 text-center shadow-sm">
+        <div className="mx-auto grid size-11 place-items-center rounded-md bg-zinc-950 text-sm font-semibold text-white">
+          A
+        </div>
+        <p className="mt-5 text-sm font-semibold text-emerald-700">Welcome, {name}</p>
+        <h1 className="mt-2 text-2xl font-semibold">Preparing your workspace</h1>
+        <p className="mt-2 text-sm text-zinc-500">We are checking your account setup.</p>
+        <div className="mt-6 h-1.5 overflow-hidden rounded-full bg-zinc-100">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-emerald-600" />
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [name, setName] = useState("Carlo");
   const [email, setEmail] = useState("creative@approvely.app");
   const [password, setPassword] = useState("approval");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState<Role>("Creative");
   const [error, setError] = useState("");
   const [authMessage, setAuthMessage] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
@@ -2152,7 +2357,8 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
             typeof data.user.user_metadata?.name === "string"
               ? data.user.user_metadata.name
               : name.trim() || data.user.email,
-          role,
+          role: "Creative",
+          roleConfirmed: false,
         });
         return;
       }
@@ -2173,7 +2379,8 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
           typeof data.user.user_metadata?.name === "string"
             ? data.user.user_metadata.name
             : name.trim() || data.user.email,
-        role,
+        role: "Creative",
+        roleConfirmed: undefined,
       });
       return;
     }
@@ -2182,7 +2389,8 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
     onLogin({
       email,
       name: name.trim() || email.split("@")[0] || "User",
-      role,
+      role: "Creative",
+      roleConfirmed: false,
     });
   };
 
@@ -2191,7 +2399,8 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
       onLogin({
         email: "google.user@approvely.app",
         name: "Google User",
-        role,
+        role: "Creative",
+        roleConfirmed: false,
       });
       return;
     }
@@ -2315,20 +2524,6 @@ function LoginScreen({ onLogin }: { onLogin: (session: Session) => void }) {
                 type="password"
                 value={confirmPassword}
               />
-            </label>
-          ) : null}
-          {!liveAuth ? (
-            <label className="grid gap-1.5 text-sm font-medium">
-              Demo role
-              <select
-                className="h-11 rounded-md border border-zinc-200 bg-white px-3 outline-none transition focus:border-zinc-400"
-                onChange={(event) => setRole(event.target.value as Role)}
-                value={role}
-              >
-                <option>Creative</option>
-                <option>Approver</option>
-                <option>Assistant</option>
-              </select>
             </label>
           ) : null}
           <button
@@ -4783,7 +4978,8 @@ function readDemoSession(): Session | null {
   }
 
   try {
-    return JSON.parse(storedSession) as Session;
+    const parsed = JSON.parse(storedSession) as Session;
+    return { ...parsed, roleConfirmed: parsed.roleConfirmed ?? true };
   } catch {
     window.sessionStorage.removeItem("approveLyDemoSession");
     return null;

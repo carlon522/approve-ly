@@ -12,6 +12,15 @@
 8. Assigned approvers receive a notification.
 9. Activity log records upload and submission.
 
+## First Login Role Setup
+
+1. A user authenticates with email/password or Google.
+2. If the profile is not confirmed, the portal opens the dedicated role setup page before dashboard access.
+3. The user chooses Creative, Approver, or Assistant.
+4. `PATCH /api/profile/role` saves the role and marks `role_confirmed` true.
+5. The workspace refreshes with the role-specific dashboard and permissions.
+6. Existing confirmed profiles skip the setup page.
+
 ## Workspace Sync
 
 1. Authenticated users receive the last workspace snapshot from the current browser session when it is still fresh.

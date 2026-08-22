@@ -14,6 +14,8 @@
 
 ## Integration Tests
 
+- New email/password account sees the role setup page before the dashboard and the selected role persists after refresh.
+- New Google account sees the same role setup page; an existing confirmed Google account skips it.
 - Creative creates company, campaign, folder, and content item.
 - Approver assigned to campaign can comment and approve.
 - Creative can delete content from the approval page; Assistants cannot.
@@ -24,6 +26,7 @@
 
 ## UI Tests
 
+- Login has no role dropdown; first login presents an accessible role choice page with a disabled saving state.
 - Dashboard renders at mobile, tablet, and desktop sizes.
 - Mobile app shell keeps the bottom navigation fixed, clears page content, and preserves sign-out/reset actions in the sticky header.
 - Mobile navigation maps to the correct role-specific destinations and uses full accessible names for shortened labels.

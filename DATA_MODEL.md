@@ -14,6 +14,10 @@ This model is intentionally relational and explicit so permissions, audit trails
 - created_at
 - last_login_at
 
+### profiles onboarding fields
+
+- role_confirmed: boolean; false until a newly authenticated user chooses their workspace role on first login.
+
 ### companies
 
 - id

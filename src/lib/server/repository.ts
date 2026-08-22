@@ -19,6 +19,7 @@ import type {
   PortalContent,
   PortalFolder,
   Profile,
+  Role,
 } from "./types";
 import { platformAccent } from "./demo-data";
 
@@ -145,6 +146,38 @@ export async function getBootstrap(profile: Profile): Promise<BootstrapPayload> 
   };
 }
 
+export async function confirmProfileRole(profile: Profile, role: Role): Promise<Profile> {
+  if (profile.roleConfirmed) {
+    throw new ApiError("Your role is already confirmed. Contact an administrator to change it.", 409);
+  }
+
+  if (!(["Creative", "Approver", "Assistant"] as Role[]).includes(role)) {
+    throw new ApiError("Choose a valid workspace role.", 400);
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({ role, role_confirmed: true })
+    .eq("id", profile.id)
+    .select("id,email,name,role,role_confirmed")
+    .single();
+
+  if (error || !data) {
+    throw new ApiError(error?.message ?? "Unable to save your workspace role.", 500);
+  }
+
+  await logActivity("bell", `${data.name} joined as ${data.role}`);
+
+  return {
+    email: data.email,
+    id: data.id,
+    name: data.name,
+    role: data.role as Role,
+    roleConfirmed: Boolean(data.role_confirmed),
+  };
+}
+
 export async function getSharedBootstrap(token: string, profile?: Profile): Promise<BootstrapPayload> {
   const supabase = getSupabaseAdmin();
   const { data: shareLink, error: shareError } = await supabase
@@ -219,6 +252,7 @@ export async function getSharedBootstrap(token: string, profile?: Profile): Prom
         id: "public-share",
         name: "Public viewer",
         role: "Assistant",
+        roleConfirmed: true,
       } satisfies Profile),
   };
 }

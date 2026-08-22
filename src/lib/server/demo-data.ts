@@ -60,6 +60,7 @@ export function getDemoBootstrap(profile?: Profile) {
         id: "demo-user",
         name: "Carlo",
         role: "Creative",
+        roleConfirmed: true,
       } satisfies Profile),
   };
 }
