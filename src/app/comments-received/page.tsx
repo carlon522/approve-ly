@@ -1,5 +1,5 @@
-import PortalClient from "../portal-client";
+import { redirect } from "next/navigation";
 
 export default function CommentsReceivedPage() {
-  return <PortalClient initialView="Comments received" />;
+  redirect("/messages");
 }

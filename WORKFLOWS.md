@@ -66,6 +66,14 @@
 8. Creatives are notified immediately.
 9. Activity log records approval.
 
+## Immersion Approval Review
+
+1. Reviewer opens a content item and turns on Immersion from the fixed switch.
+2. The portal presents one vertical content preview at a time with touch, wheel, and keyboard navigation.
+3. Reviewer can use the right-side heart to approve, the comment action to open review notes, or share the item.
+4. Up and down navigation preserves immersion mode while changing content.
+5. Turning the switch off returns to the standard approval workspace.
+
 ## Unapproval and Deletion
 
 1. A Creative or assigned Approver opens approved content.

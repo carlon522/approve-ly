@@ -20,6 +20,7 @@ import {
   Folder,
   FolderPlus,
   Gauge,
+  Heart,
   ImageIcon,
   Inbox,
   Link,
@@ -70,7 +71,7 @@ type Role = "Creative" | "Approver" | "Assistant";
 type View =
   | "Dashboard"
   | "Campaigns"
-  | "Comments received"
+  | "Messages"
   | "Content to approve"
   | "Archive"
   | "Account"
@@ -307,7 +308,7 @@ const defaultUploadDraft: UploadDraft = {
 const viewRoutes: Record<View, string> = {
   Dashboard: "/dashboard",
   Campaigns: "/campaigns",
-  "Comments received": "/comments-received",
+  Messages: "/messages",
   "Content to approve": "/approvals",
   Archive: "/archive",
   Account: "/account",
@@ -346,6 +347,7 @@ export default function PortalClient({
   const [activeView, setActiveView] = useState<View>(
     initialView ?? (initialCampaignId ? "Campaigns" : "Dashboard"),
   );
+  const [immersionMode, setImmersionMode] = useState(() => readStoredImmersionMode());
   const [uploadOpen, setUploadOpen] = useState(false);
   const [campaignOpen, setCampaignOpen] = useState(false);
   const [campaignAccessCampaign, setCampaignAccessCampaign] = useState<PortalCampaign | null>(null);
@@ -741,6 +743,7 @@ export default function PortalClient({
     (campaign) => campaign.id === (projectId ?? ""),
   );
   const isProjectPage = Boolean(projectId);
+  const immersiveApproval = isProjectPage && projectStage === "content" && immersionMode;
   const currentProjectMembers = useMemo(
     () =>
       currentProject
@@ -1054,6 +1057,11 @@ export default function PortalClient({
     notify(`Showing ${role} view`, "neutral");
   };
 
+  const handleImmersionChange = (enabled: boolean) => {
+    setImmersionMode(enabled);
+    window.sessionStorage.setItem("approveLyImmersionMode", String(enabled));
+  };
+
   const handleLogin = (nextSession: Session) => {
     if (!liveAuth) {
       window.sessionStorage.setItem("approveLyDemoSession", JSON.stringify(nextSession));
@@ -1086,8 +1094,10 @@ export default function PortalClient({
 
     window.sessionStorage.removeItem("approveLyDemoSession");
     window.sessionStorage.removeItem("approveLyViewRole");
+    window.sessionStorage.removeItem("approveLyImmersionMode");
     setSession(null);
     setViewRole("Creative");
+    setImmersionMode(false);
     setWorkspaceLoading(false);
     setWorkspaceSyncing(false);
     notify("Signed out", "neutral");
@@ -1871,6 +1881,8 @@ export default function PortalClient({
     setCampaignMembers(campaignMemberSeed);
     setViewRole("Creative");
     window.sessionStorage.setItem("approveLyViewRole", "Creative");
+    setImmersionMode(false);
+    window.sessionStorage.removeItem("approveLyImmersionMode");
     setSelectedCompany(campaignSeed[0].company);
     setSelectedCampaign(campaignSeed[0].name);
     setSelectedFolder("All folders");
@@ -1956,7 +1968,7 @@ export default function PortalClient({
     }
 
     if (activity.kind === "comment") {
-      navigateToView("Comments received");
+      navigateToView("Messages");
       return;
     }
 
@@ -2023,34 +2035,48 @@ export default function PortalClient({
   }
 
   return (
-    <main className="min-h-screen scroll-pb-28 bg-[#f7f7f4] pb-28 text-zinc-950 lg:pb-0">
+    <main
+      className={`min-h-screen text-zinc-950 ${
+        immersiveApproval
+          ? "overflow-hidden bg-[#07090f] pb-0"
+          : "scroll-pb-28 bg-[#f7f7f4] pb-28 lg:pb-0"
+      }`}
+    >
       <div
         aria-busy={workspaceSyncing}
-        className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 px-3 py-3 sm:px-5 lg:flex-row lg:p-5"
+        className={`mx-auto flex w-full flex-col ${
+          immersiveApproval
+            ? "max-w-none"
+            : "max-w-[1500px] gap-4 px-3 py-3 sm:px-5 lg:flex-row lg:p-5"
+        }`}
       >
-        <Sidebar
-          activeView={activeView}
-          canSwitchView={session.role === "Creative"}
-          onChangeView={navigateToView}
-          onChangeRole={handleViewRoleChange}
-          demoMode={!liveAuth}
-          onLogout={handleLogout}
-          onReset={resetDemo}
-          role={activeRole}
-          storageValue={metrics[3].value}
-        />
-        <section className="flex min-w-0 flex-1 flex-col gap-4">
+        {!immersiveApproval ? (
+          <Sidebar
+            activeView={activeView}
+            canSwitchView={session.role === "Creative"}
+            onChangeView={navigateToView}
+            onChangeRole={handleViewRoleChange}
+            demoMode={!liveAuth}
+            onLogout={handleLogout}
+            onReset={resetDemo}
+            role={activeRole}
+            storageValue={metrics[3].value}
+          />
+        ) : null}
+        <section className={`flex min-w-0 flex-1 flex-col ${immersiveApproval ? "gap-0" : "gap-4"}`}>
           {isProjectPage ? (
             <>
               {projectStage === "content" ? (
                 <>
-                  <ApprovalHeader
-                    campaign={currentProject ?? visibleCampaigns[0]}
-                    folder={currentFolder}
-                    item={activeItem}
-                    onBack={backToFolder}
-                  />
-          <ApprovalWorkspace
+                  {!immersionMode ? (
+                    <ApprovalHeader
+                      campaign={currentProject ?? visibleCampaigns[0]}
+                      folder={currentFolder}
+                      item={activeItem}
+                      onBack={backToFolder}
+                    />
+                  ) : null}
+                  <ApprovalWorkspace
                     activeComments={activeComments}
                     activeItem={activeItem}
                     activePlatform={activePlatform}
@@ -2059,6 +2085,7 @@ export default function PortalClient({
                     canApprove={capabilities.canApprove}
                     canUnapprove={capabilities.canUnapprove}
                     canComment={capabilities.canComment}
+                    feedItems={projectContent}
                     focused
                     hasNextItem={Boolean(projectContent[projectContent.findIndex((item) => item.id === routeActiveItemId) + 1])}
                     hasPreviousItem={Boolean(projectContent[projectContent.findIndex((item) => item.id === routeActiveItemId) - 1])}
@@ -2088,6 +2115,8 @@ export default function PortalClient({
                         : undefined
                     }
                     approvalPending={approvalPending}
+                    immersionMode={immersionMode}
+                    onImmersionChange={handleImmersionChange}
                     previewLoading={previewLoading}
                     previewUrl={previewUrl}
                   />
@@ -2242,8 +2271,8 @@ export default function PortalClient({
                   role={activeRole}
                 />
               ) : null}
-              {activeView === "Comments received" ? (
-                <CommentsReceivedPage
+              {activeView === "Messages" ? (
+                <MessagesPage
                   comments={commentList.filter((comment) =>
                     accessibleContent.some((item) => item.id === comment.contentId),
                   )}
@@ -3535,7 +3564,7 @@ function ContentListPage({
   );
 }
 
-function CommentsReceivedPage({
+function MessagesPage({
   comments,
   contentItems,
   onOpenContent,
@@ -3551,7 +3580,7 @@ function CommentsReceivedPage({
       <PageIntro
         description="A focused summary of messages, anchors, and unresolved review notes received from your team."
         eyebrow="Content operations"
-        title="Comments received"
+        title="Messages"
       />
       <Panel title={`${comments.length} message${comments.length === 1 ? "" : "s"}`}>
         {comments.length ? (
@@ -3741,14 +3770,14 @@ function Sidebar({
         ? [
             { label: "Dashboard", icon: Gauge },
             { label: "Campaigns", icon: Folder },
-            { label: "Comments received", icon: MessageSquareText },
+            { label: "Messages", icon: MessageSquareText },
             { label: "Archive", icon: Archive },
             { label: "Account", icon: Users },
           ]
         : [
             { label: "Dashboard", icon: Gauge },
             { label: "Campaigns", icon: Folder },
-            { label: "Comments received", icon: MessageSquareText },
+            { label: "Messages", icon: MessageSquareText },
             { label: "Archive", icon: Archive },
             { label: "Account", icon: Users },
           ];
@@ -3899,8 +3928,8 @@ function Sidebar({
 
 function mobileNavLabel(label: View) {
   switch (label) {
-    case "Comments received":
-      return "Notes";
+    case "Messages":
+      return "Messages";
     case "Content to approve":
       return "Review";
     case "Campaigns":
@@ -4008,46 +4037,44 @@ function DashboardStatusOverview({
   const groups: {
     color: string;
     description: string;
+    emoji: string;
     label: string;
-    statuses: Status[];
     view: View;
   }[] = [
     {
-      color: "#2563eb",
-      description: "Submitted or being reviewed",
-      label: "In review",
-      statuses: ["Submitted", "In Review"],
+      color: "#22d3ee",
+      description: "Waiting for a decision",
+      emoji: "⏳",
+      label: "Pending approval",
       view: role === "Approver" ? "Content to approve" : "Campaigns",
     },
     {
       color: "#f59e0b",
-      description: "Needs a creative update",
-      label: "Needs changes",
-      statuses: ["Changes Requested"],
-      view: role === "Approver" ? "Content to approve" : "Comments received",
+      description: "Needs a response from the team",
+      emoji: "💬",
+      label: "Open comments",
+      view: role === "Approver" ? "Content to approve" : "Messages",
     },
     {
       color: "#059669",
       description: "Ready to download",
+      emoji: "✅",
       label: "Approved",
-      statuses: ["Approved"],
-      view: "Archive",
-    },
-    {
-      color: "#ea580c",
-      description: "Held for archive",
-      label: "Archive queued",
-      statuses: ["Archive Scheduled"],
       view: "Archive",
     },
   ];
   const total = contentItems.length;
-  const groupCounts = groups.map((group) =>
-    contentItems.filter((item) => group.statuses.includes(item.status)).length,
-  );
-  const completeCount = contentItems.filter((item) =>
-    ["Approved", "Archive Scheduled"].includes(item.status),
-  ).length;
+  const groupCounts = [
+    contentItems.filter(
+      (item) =>
+        ["Submitted", "In Review"].includes(item.status) && item.unresolved === 0,
+    ).length,
+    contentItems.filter(
+      (item) => item.unresolved > 0 || item.status === "Changes Requested",
+    ).length,
+    contentItems.filter((item) => ["Approved", "Archive Scheduled"].includes(item.status)).length,
+  ];
+  const completeCount = groupCounts[2];
   const completionRate = total ? Math.round((completeCount / total) * 100) : 0;
   const talentCounts = Array.from(
     contentItems.reduce((counts, item) => {
@@ -4076,36 +4103,48 @@ function DashboardStatusOverview({
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-2xl font-semibold text-zinc-950">{completeCount} of {total}</p>
-            <p className="text-xs text-zinc-500">content complete</p>
+            <p className="text-xs text-zinc-500">content complete · move it forward</p>
           </div>
-          <span className="text-xs font-semibold text-zinc-500">Hover a colour for detail</span>
+          <span className="hidden text-xs font-semibold text-zinc-500 sm:block">Click a stage to jump in</span>
         </div>
-        <div aria-label="Workflow status breakdown" className="mt-5 flex h-7 overflow-visible rounded-full bg-zinc-100">
-          {groups.map((group, index) => {
-            const count = groupCounts[index];
-            const width = total ? (count / total) * 100 : 0;
+        <div aria-label="Workflow status breakdown" className="relative mt-6">
+          <div className="absolute bottom-8 left-5 top-8 w-1 rounded-full bg-zinc-100 sm:bottom-auto sm:left-[16.5%] sm:right-[16.5%] sm:top-8 sm:h-1 sm:w-auto">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-amber-400 to-emerald-500 transition-[width] duration-500"
+              style={{ width: `${total ? (completeCount / total) * 100 : 0}%` }}
+            />
+          </div>
+          <div className="relative grid gap-3 sm:grid-cols-3 sm:gap-0">
+            {groups.map((group, index) => {
+              const count = groupCounts[index];
 
-            return (
-              <button
-                aria-label={`${group.label}: ${count} item${count === 1 ? "" : "s"}`}
-                className="group relative h-full min-w-0 transition hover:brightness-110 disabled:cursor-default"
-                disabled={count === 0}
-                key={group.label}
-                onClick={() => onOpenView(group.view)}
-                style={{ backgroundColor: group.color, width: `${width}%` }}
-                title={`${group.label}: ${count}`}
-                type="button"
-              >
-                {count > 0 ? (
-                  <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-zinc-950 px-2 py-1 text-[11px] font-semibold text-white shadow-sm group-hover:block group-focus-visible:block">
-                    {group.label}: {count}
+              return (
+                <button
+                  aria-label={`${index + 1}. ${group.label}: ${count} item${count === 1 ? "" : "s"}`}
+                  className="group relative flex min-h-20 items-center gap-3 rounded-lg border border-zinc-200 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-zinc-400 hover:shadow-sm sm:min-h-28 sm:flex-col sm:items-center sm:justify-center sm:gap-2 sm:border-transparent sm:bg-transparent sm:p-2 sm:text-center sm:hover:border-zinc-200 sm:hover:bg-zinc-50"
+                  disabled={count === 0}
+                  key={group.label}
+                  onClick={() => onOpenView(group.view)}
+                  title={`${group.label}: ${count}`}
+                  type="button"
+                >
+                  <span
+                    className="grid size-11 shrink-0 place-items-center rounded-full border-4 border-white text-lg shadow-sm sm:size-14 sm:text-2xl"
+                    style={{ backgroundColor: group.color }}
+                  >
+                    {group.emoji}
                   </span>
-                ) : null}
-              </button>
-            );
-          })}
+                  <span className="min-w-0">
+                    <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{index + 1}. {group.label}</span>
+                    <span className="mt-1 block text-sm font-semibold text-zinc-950">{count} item{count === 1 ? "" : "s"}</span>
+                    <span className="mt-1 block truncate text-xs text-zinc-500">{group.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
           {groups.map((group, index) => (
             <button
               className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2 text-left transition hover:border-zinc-400 disabled:cursor-default disabled:hover:border-zinc-200"
@@ -4117,7 +4156,7 @@ function DashboardStatusOverview({
               <span className="flex min-w-0 items-center gap-2">
                 <span className="size-3 shrink-0 rounded-full" style={{ backgroundColor: group.color }} />
                 <span className="min-w-0">
-                  <span className="block text-xs font-semibold text-zinc-900">{group.label}</span>
+                  <span className="block text-xs font-semibold text-zinc-900">{group.emoji} {group.label}</span>
                   <span className="block truncate text-[11px] text-zinc-500">{group.description}</span>
                 </span>
               </span>
@@ -4561,6 +4600,7 @@ function ApprovalWorkspace({
   canApprove,
   canUnapprove,
   canComment,
+  feedItems,
   focused = false,
   hasNextItem,
   hasPreviousItem,
@@ -4576,6 +4616,8 @@ function ApprovalWorkspace({
   onShare,
   onUnapprove,
   onDelete,
+  immersionMode,
+  onImmersionChange,
   previewLoading,
   previewUrl,
 }: {
@@ -4588,6 +4630,7 @@ function ApprovalWorkspace({
   canApprove: boolean;
   canUnapprove: boolean;
   canComment: boolean;
+  feedItems: PortalContent[];
   focused?: boolean;
   hasNextItem: boolean;
   hasPreviousItem: boolean;
@@ -4603,6 +4646,8 @@ function ApprovalWorkspace({
   onShare: () => void;
   onUnapprove: () => void;
   onDelete?: () => void;
+  immersionMode: boolean;
+  onImmersionChange: (enabled: boolean) => void;
   previewLoading: boolean;
   previewUrl?: string;
 }) {
@@ -4615,6 +4660,30 @@ function ApprovalWorkspace({
           <EmptyState icon={Inbox} title="Select content to review" />
         </Panel>
       </section>
+    );
+  }
+
+  if (immersionMode) {
+    return (
+      <ImmersiveApprovalFeed
+        activeComments={activeComments}
+        activeItem={activeItem}
+        activePlatform={activePlatform}
+        canApprove={canApprove}
+        canComment={canComment}
+        feedItems={feedItems}
+        hasNextItem={hasNextItem}
+        hasPreviousItem={hasPreviousItem}
+        onAddComment={onAddComment}
+        onApprove={onApprove}
+        onImmersionChange={onImmersionChange}
+        onNextItem={onNextItem}
+        onPlatformChange={onPlatformChange}
+        onPreviousItem={onPreviousItem}
+        onShare={onShare}
+        previewLoading={previewLoading}
+        previewUrl={previewUrl}
+      />
     );
   }
 
@@ -4655,6 +4724,7 @@ function ApprovalWorkspace({
         title="Approval review"
         action={
           <div className="flex items-center gap-2">
+            <ImmersionToggle enabled={false} onChange={onImmersionChange} />
             <IconButton label="Private link" icon={LockKeyhole} onClick={onShare} />
             <IconButton label="Share" icon={Share2} onClick={onShare} />
             {onDelete ? <IconButton label="Delete content" icon={Trash2} onClick={onDelete} /> : null}
@@ -4701,6 +4771,316 @@ function ApprovalWorkspace({
         </>
       ) : null}
     </section>
+  );
+}
+
+function ImmersiveApprovalFeed({
+  activeComments,
+  activeItem,
+  activePlatform,
+  canApprove,
+  canComment,
+  feedItems,
+  hasNextItem,
+  hasPreviousItem,
+  onAddComment,
+  onApprove,
+  onImmersionChange,
+  onNextItem,
+  onPlatformChange,
+  onPreviousItem,
+  onShare,
+  previewLoading,
+  previewUrl,
+}: {
+  activeComments: PortalComment[];
+  activeItem: PortalContent;
+  activePlatform: Platform;
+  canApprove: boolean;
+  canComment: boolean;
+  feedItems: PortalContent[];
+  hasNextItem: boolean;
+  hasPreviousItem: boolean;
+  onAddComment: () => void;
+  onApprove: () => void;
+  onImmersionChange: (enabled: boolean) => void;
+  onNextItem: () => void;
+  onPlatformChange: (platform: Platform) => void;
+  onPreviousItem: () => void;
+  onShare: () => void;
+  previewLoading: boolean;
+  previewUrl?: string;
+}) {
+  const touchStartY = useRef<number | null>(null);
+  const wheelLocked = useRef(false);
+  const feedIndex = Math.max(0, feedItems.findIndex((item) => item.id === activeItem.id));
+  const isApproved = activeItem.status === "Approved" || activeItem.status === "Archive Scheduled";
+  const approvalBlocked = activeItem.unresolved > 0;
+  const talent = talentFromTags(activeItem.tags);
+
+  const moveByGesture = (direction: "next" | "previous") => {
+    if (wheelLocked.current) {
+      return;
+    }
+
+    if (direction === "next" && !hasNextItem) {
+      return;
+    }
+
+    if (direction === "previous" && !hasPreviousItem) {
+      return;
+    }
+
+    wheelLocked.current = true;
+    if (direction === "next") {
+      onNextItem();
+    } else {
+      onPreviousItem();
+    }
+    window.setTimeout(() => {
+      wheelLocked.current = false;
+    }, 520);
+  };
+
+  return (
+    <section
+      aria-label="Immersive approval feed"
+      className="relative h-[100svh] min-h-[560px] w-full overflow-hidden bg-[#07090f] text-white"
+      onKeyDown={(event) => {
+        if (event.key === "ArrowDown" || event.key === "PageDown") {
+          event.preventDefault();
+          moveByGesture("next");
+        }
+        if (event.key === "ArrowUp" || event.key === "PageUp") {
+          event.preventDefault();
+          moveByGesture("previous");
+        }
+      }}
+      onTouchEnd={(event) => {
+        if (touchStartY.current === null) {
+          return;
+        }
+
+        const distance = (event.changedTouches[0]?.clientY ?? touchStartY.current) - touchStartY.current;
+        touchStartY.current = null;
+
+        if (Math.abs(distance) < 52) {
+          return;
+        }
+
+        moveByGesture(distance < 0 ? "next" : "previous");
+      }}
+      onTouchStart={(event) => {
+        touchStartY.current = event.touches[0]?.clientY ?? null;
+      }}
+      onWheel={(event) => {
+        if (Math.abs(event.deltaY) < 16) {
+          return;
+        }
+
+        moveByGesture(event.deltaY > 0 ? "next" : "previous");
+      }}
+      tabIndex={0}
+    >
+      <ImmersiveMediaCanvas
+        activePlatform={activePlatform}
+        item={activeItem}
+        key={activeItem.id}
+        previewLoading={previewLoading}
+        previewUrl={previewUrl}
+      />
+
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-4 sm:p-6">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-white/15 bg-black/30 px-3 py-2 text-xs font-semibold text-white/85 backdrop-blur-xl">
+          <span className="grid size-5 place-items-center rounded-full bg-cyan-300 text-[10px] text-zinc-950">A</span>
+          Approve.ly / review mode
+        </div>
+        <ImmersionToggle enabled onChange={onImmersionChange} />
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-0 top-20 z-20 flex justify-center px-4">
+        <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/15 bg-black/30 p-1 text-[11px] font-semibold backdrop-blur-xl">
+          {(["Instagram", "TikTok", "YouTube Shorts"] as Platform[]).map((platform) => (
+            <button
+              className={`rounded-full px-3 py-1.5 transition ${
+                activePlatform === platform ? "bg-white text-zinc-950" : "text-white/70 hover:bg-white/10 hover:text-white"
+              }`}
+              key={platform}
+              onClick={() => onPlatformChange(platform)}
+              type="button"
+            >
+              {platform === "YouTube Shorts" ? "Shorts" : platform}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="absolute inset-x-0 bottom-0 z-20 flex items-end justify-between gap-5 bg-gradient-to-t from-black/85 via-black/25 to-transparent px-5 pb-8 pt-32 sm:px-8 sm:pb-10">
+        <div className="min-w-0 max-w-[min(34rem,calc(100%-5rem))]">
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-200/85">
+            <span>{feedIndex + 1} / {feedItems.length}</span>
+            <span className="text-white/35">•</span>
+            <span>{activeItem.status}</span>
+          </div>
+          <h1 className="text-2xl font-semibold leading-tight text-white sm:text-3xl">{activeItem.title}</h1>
+          <p className="mt-2 text-sm text-white/75">{activeItem.campaign} · {activeItem.version} · {activeItem.due}</p>
+          {talent ? <TalentBadge name={talent} /> : null}
+          {activeComments.length ? (
+            <button
+              className="pointer-events-auto mt-3 inline-flex items-center gap-2 rounded-full border border-amber-200/35 bg-amber-300/15 px-3 py-2 text-xs font-semibold text-amber-100 backdrop-blur transition hover:bg-amber-300/25"
+              onClick={onAddComment}
+              type="button"
+            >
+              <MessageCircle aria-hidden className="size-3.5" />
+              {activeComments.length} message{activeComments.length === 1 ? "" : "s"} to review
+            </button>
+          ) : null}
+        </div>
+
+        <div className="pointer-events-auto flex shrink-0 flex-col items-center gap-3 pb-1">
+          <button
+            aria-label={isApproved ? "Approved" : "Approve content"}
+            className={`grid size-14 place-items-center rounded-full border text-white shadow-lg transition active:scale-90 disabled:cursor-not-allowed disabled:opacity-50 ${
+              isApproved
+                ? "border-emerald-300/60 bg-emerald-400/90"
+                : "border-white/25 bg-black/35 hover:border-pink-200/70 hover:bg-pink-500/80"
+            }`}
+            disabled={!canApprove || approvalBlocked || isApproved}
+            onClick={onApprove}
+            title={approvalBlocked ? `Resolve ${activeItem.unresolved} open comment${activeItem.unresolved === 1 ? "" : "s"}` : "Approve content"}
+            type="button"
+          >
+            <Heart aria-hidden className={`size-6 ${isApproved ? "fill-white" : ""}`} />
+          </button>
+          <span className="text-[11px] font-semibold text-white/80">{isApproved ? "Approved" : "Like to approve"}</span>
+          <button
+            aria-label="Comment on content"
+            className="grid size-12 place-items-center rounded-full border border-white/20 bg-black/35 text-white transition hover:bg-white/15 active:scale-90 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!canComment}
+            onClick={onAddComment}
+            title="Comment on content"
+            type="button"
+          >
+            <MessageCircle aria-hidden className="size-5" />
+          </button>
+          <button
+            aria-label="Share content"
+            className="grid size-12 place-items-center rounded-full border border-white/20 bg-black/35 text-white transition hover:bg-white/15 active:scale-90"
+            onClick={onShare}
+            title="Share content"
+            type="button"
+          >
+            <Share2 aria-hidden className="size-5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 hidden -translate-x-1/2 items-center gap-2 rounded-full border border-white/15 bg-black/30 px-3 py-2 text-[11px] font-semibold text-white/70 backdrop-blur-xl sm:flex">
+        <ChevronDown aria-hidden className="size-3.5 animate-bounce" />
+        Swipe or scroll for next
+      </div>
+    </section>
+  );
+}
+
+function ImmersionToggle({ enabled, onChange }: { enabled: boolean; onChange: (enabled: boolean) => void }) {
+  return (
+    <button
+      aria-checked={enabled}
+      aria-label="Toggle immersion mode"
+      className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/35 px-3 py-2 text-xs font-semibold text-white backdrop-blur-xl transition hover:border-cyan-200/60"
+      onClick={() => onChange(!enabled)}
+      role="switch"
+      type="button"
+    >
+      Immersion
+      <span className={`relative h-5 w-9 rounded-full p-0.5 transition ${enabled ? "bg-cyan-300" : "bg-white/25"}`}>
+        <span className={`block size-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-4" : "translate-x-0"}`} />
+      </span>
+    </button>
+  );
+}
+
+function ImmersiveMediaCanvas({
+  activePlatform,
+  item,
+  previewLoading,
+  previewUrl,
+}: {
+  activePlatform: Platform;
+  item: PortalContent;
+  previewLoading: boolean;
+  previewUrl?: string;
+}) {
+  const [playing, setPlaying] = useState(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const isVideoPreview = Boolean(
+    previewUrl &&
+      (item.type === "Video" ||
+        item.mimeType?.startsWith("video/") ||
+        /\.(mp4|mov|webm)(?:\?|$)/i.test(previewUrl)),
+  );
+
+  return (
+    <div className="immersion-feed-card absolute inset-0 overflow-hidden bg-[#0c101b]">
+      <div
+        className="absolute inset-0"
+        style={{
+          background: `linear-gradient(145deg, #08111f 5%, ${item.accent} 48%, #100d1b 100%)`,
+        }}
+      />
+      {previewUrl && isVideoPreview ? (
+        <video
+          autoPlay
+          className="absolute inset-0 size-full object-cover"
+          loop
+          muted
+          onPause={() => setPlaying(false)}
+          onPlay={() => setPlaying(true)}
+          playsInline
+          preload="metadata"
+          ref={videoRef}
+          src={previewUrl}
+        />
+      ) : previewUrl ? (
+        <Image
+          alt={`${item.title} immersion preview`}
+          className="object-cover"
+          fill
+          sizes="100vw"
+          src={previewUrl}
+          unoptimized
+        />
+      ) : null}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/75" />
+      <div className="absolute right-5 top-1/2 z-10 hidden -translate-y-1/2 rounded-full border border-white/20 bg-black/30 px-2 py-3 text-white/70 backdrop-blur sm:block">
+        <span className="block text-[10px] [writing-mode:vertical-rl]">{platformLabel(activePlatform)}</span>
+      </div>
+      {previewLoading ? (
+        <div className="absolute inset-0 z-20 grid place-items-center bg-[#07090f]/45 text-sm font-semibold text-white backdrop-blur-[2px]">
+          Loading preview…
+        </div>
+      ) : null}
+      {isVideoPreview ? (
+        <button
+          aria-label={playing ? "Pause preview" : "Play preview"}
+          className="absolute left-1/2 top-1/2 z-20 grid size-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-black/25 text-white backdrop-blur transition hover:bg-black/45"
+          onClick={() => {
+            if (!videoRef.current) {
+              return;
+            }
+            if (videoRef.current.paused) {
+              void videoRef.current.play();
+            } else {
+              videoRef.current.pause();
+            }
+          }}
+          type="button"
+        >
+          {playing ? <span className="text-lg">Ⅱ</span> : <Play aria-hidden className="ml-0.5 size-6 fill-white" />}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -5707,6 +6087,14 @@ function readStoredViewRole(): Role {
   return storedRole === "Approver" || storedRole === "Assistant" || storedRole === "Creative"
     ? storedRole
     : "Creative";
+}
+
+function readStoredImmersionMode() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.sessionStorage.getItem("approveLyImmersionMode") === "true";
 }
 
 function readDemoState(): DemoPortalState | null {

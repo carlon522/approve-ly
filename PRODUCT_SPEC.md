@@ -20,6 +20,7 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - New accounts choose Creative, Approver, or Assistant on a dedicated first-login setup page before entering the dashboard.
 - Creatives can switch between Creative, Approver, and Assistant interface views for review and handoff checks; this does not change their persisted permissions.
 - The Account section shows the signed-in profile, current role, capability summary, and accessible workspace snapshot.
+- Primary navigation is Dashboard, Campaigns, Messages, Archive, and Account; Approver view keeps its focused Content to approve destination alongside Dashboard and Account.
 
 ## Content Types
 
@@ -97,6 +98,13 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - Due dates become progressively red as they approach, with late items using the strongest red.
 - Hovering or focusing a marked day reveals the expiring content and due label; selecting it opens the approval page.
 - Late, running-close, and on-time summaries count open approvals only. Approved and archive-scheduled content remains visible as completed green markers.
+
+## Immersion Approval Mode
+
+- Content approval can switch into a full-screen, mobile-first immersion feed.
+- Immersion presents one vertical item at a time with touch, wheel, and keyboard navigation, plus fixed approval, comment, share, and exit controls.
+- The approval heart is a deliberate Approve action; unresolved comments continue to block approval.
+- The active immersion preference persists while moving between content items and can be turned off from the fixed switch.
 
 ## Recommended Technical Stack
 

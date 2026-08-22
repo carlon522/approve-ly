@@ -10,6 +10,7 @@ Use App Router routes and keep screens focused on real workflows.
 ## Authenticated Routes
 
 - `/dashboard`: company selector, campaign selector, stats, due dates, recent activity.
+- `/messages`: comment and review-message summary for the workspace.
 - `/companies`: companies the user can access.
 - `/companies/new`: create company for Creatives and Super Admin.
 - `/companies/[companyId]`: company overview, branding, users, storage.

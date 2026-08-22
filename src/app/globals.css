@@ -62,6 +62,22 @@ a {
   }
 }
 
+@keyframes immersion-feed-in {
+  0% {
+    opacity: 0.7;
+    transform: translateY(22px) scale(0.985);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.immersion-feed-card {
+  animation: immersion-feed-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 .mobile-nav-active {
   animation: mobile-nav-pop 280ms ease-out both;
 }

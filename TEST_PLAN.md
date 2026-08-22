@@ -32,6 +32,9 @@
 - Login has no role dropdown; first login presents an accessible role choice page with a disabled saving state.
 - Creative view switcher changes the navigation between Creative, Approver, and Assistant views without changing the persisted account role.
 - Account navigation opens the signed-in profile and capability summary for Creative, Approver, and Assistant views.
+- Primary navigation labels render as Dashboard, Campaigns, Messages, Archive, and Account; legacy comments/inbox paths redirect to Messages.
+- Immersion mode opens from approval review, hides workspace chrome, keeps the fixed exit switch visible, and supports next/previous content by touch, wheel, and keyboard.
+- Immersion approval heart respects permissions and unresolved-comment blocking; comment and share controls remain available.
 - Campaign status exposes Add approver for Creatives, shows assigned approvers, loading, duplicate, and invalid-account states.
 - Campaign pages show assigned approvers in a dedicated Campaign team panel; Add approver remains Creative-only.
 - Dashboard deadline heat map renders late, close, on-time, and completed states with the correct red/green intensity; hover and focus reveal the content due details.
