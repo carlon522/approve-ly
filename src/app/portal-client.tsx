@@ -73,7 +73,7 @@ type View =
   | "Comments received"
   | "Content to approve"
   | "Archive"
-  | "Team"
+  | "Account"
   | "Talent content";
 type ProjectStage = "campaign" | "folder" | "content";
 type ToastTone = "success" | "warning" | "neutral";
@@ -310,7 +310,7 @@ const viewRoutes: Record<View, string> = {
   "Comments received": "/comments-received",
   "Content to approve": "/approvals",
   Archive: "/archive",
-  Team: "/team",
+  Account: "/account",
   "Talent content": "/talent",
 };
 
@@ -741,6 +741,13 @@ export default function PortalClient({
     (campaign) => campaign.id === (projectId ?? ""),
   );
   const isProjectPage = Boolean(projectId);
+  const currentProjectMembers = useMemo(
+    () =>
+      currentProject
+        ? campaignMembers.filter((member) => member.campaignId === currentProject.id)
+        : [],
+    [campaignMembers, currentProject],
+  );
 
   const projectContent = useMemo(
     () =>
@@ -932,6 +939,55 @@ export default function PortalClient({
       return null;
     }
   };
+
+  useEffect(() => {
+    if (!currentProject?.id || !session?.accessToken) {
+      return;
+    }
+
+    const campaignId = currentProject.id;
+    let cancelled = false;
+    window.queueMicrotask(() => {
+      if (!cancelled) {
+        setCampaignMembersLoading(true);
+      }
+    });
+
+    void apiRequest<{ members: PortalCampaignMember[] }>(
+      `/api/campaigns/${encodeURIComponent(campaignId)}/members`,
+      session.accessToken,
+    )
+      .then((saved) => {
+        if (cancelled || !saved?.members) {
+          return;
+        }
+
+        setCampaignMembers((items) => [
+          ...items.filter((member) => member.campaignId !== campaignId),
+          ...saved.members,
+        ]);
+        setCampaignList((items) =>
+          items.map((campaign) =>
+            campaign.id === campaignId
+              ? {
+                  ...campaign,
+                  approvers: `${saved.members.length} approver${saved.members.length === 1 ? "" : "s"}`,
+                }
+              : campaign,
+          ),
+        );
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) {
+          setCampaignMembersLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProject?.id, session?.accessToken]);
 
   const handleRoleSelection = async (role: Role) => {
     if (!session || roleSetupSaving) {
@@ -1222,7 +1278,10 @@ export default function PortalClient({
       );
 
       if (saved?.members) {
-        setCampaignMembers(saved.members);
+        setCampaignMembers((items) => [
+          ...items.filter((member) => member.campaignId !== campaign.id),
+          ...saved.members,
+        ]);
         updateCampaignApproverCount(campaign.id, saved.members.length);
       }
 
@@ -1231,7 +1290,6 @@ export default function PortalClient({
     }
 
     const demoMembers = campaignMembers.filter((member) => member.campaignId === campaign.id);
-    setCampaignMembers(demoMembers);
     updateCampaignApproverCount(campaign.id, demoMembers.length);
     setCampaignMembersLoading(false);
   };
@@ -1248,7 +1306,13 @@ export default function PortalClient({
       return;
     }
 
-    if (campaignMembers.some((member) => member.email.toLowerCase() === normalizedEmail)) {
+    if (
+      campaignMembers.some(
+        (member) =>
+          member.campaignId === campaignAccessCampaign.id &&
+          member.email.toLowerCase() === normalizedEmail,
+      )
+    ) {
       notify("That approver already has access to this campaign.", "warning");
       return;
     }
@@ -1265,7 +1329,10 @@ export default function PortalClient({
 
     if (saved?.member) {
       setCampaignMembers((items) => [...items, saved.member]);
-      updateCampaignApproverCount(campaignAccessCampaign.id, campaignMembers.length + 1);
+      updateCampaignApproverCount(
+        campaignAccessCampaign.id,
+        campaignMembers.filter((member) => member.campaignId === campaignAccessCampaign.id).length + 1,
+      );
       addActivity("bell", `${saved.member.name} added to ${campaignAccessCampaign.name}`);
       notify(`${saved.member.name} can now approve this campaign`);
       setCampaignMemberSaving(false);
@@ -1287,7 +1354,10 @@ export default function PortalClient({
     };
 
     setCampaignMembers((items) => [...items, nextMember]);
-    updateCampaignApproverCount(campaignAccessCampaign.id, campaignMembers.length + 1);
+    updateCampaignApproverCount(
+      campaignAccessCampaign.id,
+      campaignMembers.filter((member) => member.campaignId === campaignAccessCampaign.id).length + 1,
+    );
     addActivity("bell", `${nextMember.name} added to ${campaignAccessCampaign.name}`);
     notify(`${nextMember.name} added as campaign approver`);
     setCampaignMemberSaving(false);
@@ -2053,6 +2123,8 @@ export default function PortalClient({
                       campaign={currentProject ?? visibleCampaigns[0]}
                       contentItems={projectContent}
                       folders={projectFolders}
+                      teamLoading={campaignMembersLoading}
+                      teamMembers={currentProjectMembers}
                       onAddFolder={() => {
                         if (requirePermission(capabilities.canCreate, "Only Creatives can create folders.")) {
                           setFolderOpen(true);
@@ -2217,10 +2289,11 @@ export default function PortalClient({
                   title="Archive"
                 />
               ) : null}
-              {activeView === "Team" ? (
-                <TeamPage
+              {activeView === "Account" ? (
+                <AccountPage
                   campaigns={accessibleCampaigns}
                   contentItems={accessibleContent}
+                  email={session.email}
                   name={session.name}
                   role={activeRole}
                   onOpenCampaign={openProject}
@@ -2299,7 +2372,9 @@ export default function PortalClient({
         <CampaignAccessModal
           campaign={campaignAccessCampaign}
           loading={campaignMembersLoading}
-          members={campaignMembers}
+          members={campaignMembers.filter(
+            (member) => member.campaignId === campaignAccessCampaign.id,
+          )}
           onAdd={(email) => void handleAddApprover(email)}
           onClose={() => setCampaignAccessOpen(false)}
           saving={campaignMemberSaving}
@@ -2915,6 +2990,8 @@ function CampaignOverviewPage({
   onManageApprovers,
   onOpenFolder,
   onUpload,
+  teamLoading,
+  teamMembers,
 }: {
   canCreate: boolean;
   campaign?: PortalCampaign;
@@ -2925,6 +3002,8 @@ function CampaignOverviewPage({
   onManageApprovers: () => void;
   onOpenFolder: (folder: PortalFolder) => void;
   onUpload: () => void;
+  teamLoading: boolean;
+  teamMembers: PortalCampaignMember[];
 }) {
   const pending = contentItems.filter((item) =>
     ["Submitted", "In Review", "Changes Requested"].includes(item.status),
@@ -2978,35 +3057,74 @@ function CampaignOverviewPage({
         )}
       </Panel>
 
-      <Panel
-        title="Campaign status"
-        action={
-          canCreate ? (
-            <button
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-zinc-400"
-              onClick={onManageApprovers}
-              type="button"
-            >
-              <Users aria-hidden className="size-3.5" />
-              Add approver
-            </button>
-          ) : null
-        }
-      >
-        <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-          <MiniStat label="Content items" value={String(contentItems.length)} />
-          <MiniStat label="Awaiting approval" value={String(pending)} />
-          <MiniStat label="Approved" value={String(approved)} />
-        </div>
-        <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-          <div className="flex items-center justify-between gap-3 text-sm font-semibold">
-            <span>{campaign?.name ?? "Campaign"}</span>
-            <span>{campaign?.progress ?? 0}%</span>
+      <div className="grid gap-4">
+        <Panel title="Campaign status">
+          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+            <MiniStat label="Content items" value={String(contentItems.length)} />
+            <MiniStat label="Awaiting approval" value={String(pending)} />
+            <MiniStat label="Approved" value={String(approved)} />
           </div>
-          <ProgressBar value={campaign?.progress ?? 0} className="mt-3" />
-          <p className="mt-2 text-xs text-zinc-500">Due {campaign?.due ?? "No due date"}</p>
-        </div>
-      </Panel>
+          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+            <div className="flex items-center justify-between gap-3 text-sm font-semibold">
+              <span>{campaign?.name ?? "Campaign"}</span>
+              <span>{campaign?.progress ?? 0}%</span>
+            </div>
+            <ProgressBar value={campaign?.progress ?? 0} className="mt-3" />
+            <p className="mt-2 text-xs text-zinc-500">Due {campaign?.due ?? "No due date"}</p>
+          </div>
+        </Panel>
+
+        <Panel
+          title="Campaign team"
+          action={
+            canCreate ? (
+              <button
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700 transition hover:border-zinc-400"
+                onClick={onManageApprovers}
+                type="button"
+              >
+                <Users aria-hidden className="size-3.5" />
+                Add approver
+              </button>
+            ) : null
+          }
+        >
+          <p className="mb-3 text-sm leading-6 text-zinc-500">
+            Approvers assigned here can review, comment on, and approve this campaign&apos;s content.
+          </p>
+          {teamLoading ? (
+            <div className="grid gap-2" aria-label="Loading campaign team">
+              {[1, 2].map((item) => (
+                <div className="h-16 animate-pulse rounded-md bg-zinc-100" key={item} />
+              ))}
+            </div>
+          ) : teamMembers.length ? (
+            <div className="grid gap-2">
+              {teamMembers.map((member) => (
+                <div
+                  className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white p-3"
+                  key={member.id}
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="grid size-9 shrink-0 place-items-center rounded-md bg-emerald-50 text-xs font-semibold text-emerald-700">
+                      {member.name.slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-zinc-950">{member.name}</p>
+                      <p className="truncate text-xs text-zinc-500">{member.email}</p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+                    {member.role}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState icon={Users} title="No approvers assigned" />
+          )}
+        </Panel>
+      </div>
     </section>
   );
 }
@@ -3480,15 +3598,17 @@ function CommentsReceivedPage({
   );
 }
 
-function TeamPage({
+function AccountPage({
   campaigns,
   contentItems,
+  email,
   name,
   onOpenCampaign,
   role,
 }: {
   campaigns: PortalCampaign[];
   contentItems: PortalContent[];
+  email: string;
   name: string;
   onOpenCampaign: (campaign: PortalCampaign) => void;
   role: Role;
@@ -3502,12 +3622,12 @@ function TeamPage({
   return (
     <>
       <PageIntro
-        description="See your access level, assigned work, and the campaigns currently in your workspace."
-        eyebrow="Workspace access"
-        title="Team"
+        description="Manage your profile view and see the access currently available to your workspace account."
+        eyebrow="Account"
+        title="Your account"
       />
       <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-        <Panel title="Your access">
+        <Panel title="Profile">
           <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
             <div className="flex items-center gap-3">
               <div className="grid size-11 place-items-center rounded-md bg-zinc-950 text-sm font-semibold text-white">
@@ -3515,10 +3635,17 @@ function TeamPage({
               </div>
               <div className="min-w-0">
                 <p className="truncate font-semibold text-zinc-950">{name}</p>
-                <p className="text-sm text-zinc-500">{role}</p>
+                <p className="truncate text-sm text-zinc-500">{email}</p>
               </div>
             </div>
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-white px-3 py-2">
+              <span className="text-sm text-zinc-600">Workspace role</span>
+              <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
+                {role}
+              </span>
+            </div>
             <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Access summary</p>
               <AccessRow label="Create content" enabled={capabilities.canCreate} />
               <AccessRow label="Approve content" enabled={capabilities.canApprove} />
               <AccessRow label="Comment on content" enabled={capabilities.canComment} />
@@ -3526,7 +3653,7 @@ function TeamPage({
             </div>
           </div>
         </Panel>
-        <Panel title="Workspace snapshot">
+        <Panel title="Your workspace">
           <div className="grid gap-3 sm:grid-cols-3">
             <MiniStat label="Assigned campaigns" value={String(campaigns.length)} />
             <MiniStat label="Awaiting review" value={String(pending)} />
@@ -3608,6 +3735,7 @@ function Sidebar({
       ? [
           { label: "Dashboard", icon: Gauge },
           { label: "Content to approve", icon: CheckCircle2 },
+          { label: "Account", icon: Users },
         ]
       : role === "Assistant"
         ? [
@@ -3615,13 +3743,14 @@ function Sidebar({
             { label: "Campaigns", icon: Folder },
             { label: "Comments received", icon: MessageSquareText },
             { label: "Archive", icon: Archive },
+            { label: "Account", icon: Users },
           ]
         : [
             { label: "Dashboard", icon: Gauge },
             { label: "Campaigns", icon: Folder },
             { label: "Comments received", icon: MessageSquareText },
             { label: "Archive", icon: Archive },
-            { label: "Team", icon: Users },
+            { label: "Account", icon: Users },
           ];
 
   return (

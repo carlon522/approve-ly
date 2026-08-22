@@ -17,6 +17,7 @@
 - New email/password account sees the role setup page before the dashboard and the selected role persists after refresh.
 - New Google account sees the same role setup page; an existing confirmed Google account skips it.
 - Creative can list campaign approvers and add an existing Approver account by email; the assignment appears in the Approver workspace.
+- Assigned Approvers and Assistants can view the Campaign team section for campaigns they can access; unassigned users receive no team data.
 - Non-Creative users cannot call the campaign members assignment API successfully.
 - Creative creates company, campaign, folder, and content item.
 - Approver assigned to campaign can comment and approve.
@@ -30,7 +31,9 @@
 
 - Login has no role dropdown; first login presents an accessible role choice page with a disabled saving state.
 - Creative view switcher changes the navigation between Creative, Approver, and Assistant views without changing the persisted account role.
+- Account navigation opens the signed-in profile and capability summary for Creative, Approver, and Assistant views.
 - Campaign status exposes Add approver for Creatives, shows assigned approvers, loading, duplicate, and invalid-account states.
+- Campaign pages show assigned approvers in a dedicated Campaign team panel; Add approver remains Creative-only.
 - Dashboard deadline heat map renders late, close, on-time, and completed states with the correct red/green intensity; hover and focus reveal the content due details.
 - Dashboard heat map month controls remain usable at mobile width and clicking a marked day opens its most urgent content.
 - Dashboard renders at mobile, tablet, and desktop sizes.

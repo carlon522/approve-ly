@@ -20,6 +20,7 @@ Use App Router routes and keep screens focused on real workflows.
 - `/content/[contentId]`: approval workspace with preview, comments, versions, and actions.
 - `/content/[contentId]/versions/[versionId]`: version detail and compare view.
 - `/archive`: archive scheduled and archived content.
+- `/account`: signed-in profile, role, permission summary, and workspace snapshot.
 - `/settings/profile`: user profile and notifications.
 - `/admin`: Super Admin global console.
 
@@ -30,7 +31,7 @@ Use App Router routes and keep screens focused on real workflows.
 - `/api/uploads/complete`: record uploaded files and metadata.
 - `/api/downloads/sign`: create signed download URL.
 - `/api/share-links`: create, revoke, and inspect share links.
-- `GET|POST /api/campaigns/[campaignId]/members`: list assigned campaign approvers or grant an existing Approver account access; Creative-only.
+- `GET|POST /api/campaigns/[campaignId]/members`: assigned users can view campaign approvers; Creatives can grant an existing Approver account access.
 - `POST /api/content/[contentId]/unapprove`: remove approval and cancel a pending archive hold.
 - `DELETE /api/content/[contentId]`: permanently delete content, stored media, and related comments.
 - `/api/webhooks/storage`: storage/video processing callbacks.

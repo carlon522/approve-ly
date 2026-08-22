@@ -30,12 +30,19 @@
 
 ## Campaign Approver Assignment
 
-1. A Creative opens a campaign and selects Add approver from Campaign status.
+1. A Creative opens a campaign and selects Add approver from the Campaign team panel.
 2. The portal loads the current Approver assignments for that campaign.
 3. The Creative enters the email of an existing Approve.ly account confirmed as Approver.
 4. The server validates Creative ownership capability, finds the profile, and upserts the `campaign_members` assignment.
 5. The assigned user sees the campaign in their Approver workspace after the next workspace refresh.
 6. Duplicate assignments are rejected in the interface and remain idempotent at the database boundary.
+
+## Account and Campaign Team
+
+1. The Account navigation opens the signed-in user profile, role, capability summary, and workspace snapshot.
+2. A campaign page shows its assigned approvers in the Campaign team panel.
+3. Assigned reviewers can view the panel for campaigns in their workspace.
+4. Only Creatives can add approvers or change campaign access.
 
 ## Commenting
 

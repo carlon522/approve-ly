@@ -19,6 +19,7 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - Super Admin: global owner account for all companies, users, storage, archive state, and audit logs.
 - New accounts choose Creative, Approver, or Assistant on a dedicated first-login setup page before entering the dashboard.
 - Creatives can switch between Creative, Approver, and Assistant interface views for review and handoff checks; this does not change their persisted permissions.
+- The Account section shows the signed-in profile, current role, capability summary, and accessible workspace snapshot.
 
 ## Content Types
 
@@ -69,6 +70,7 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - Creatives can add an existing Approve.ly Approver account to a campaign by email.
 - The assignment is stored in `campaign_members` and immediately makes the campaign visible in that Approver's workspace.
 - Approvers receive review, comment, and approval access for assigned campaign content only.
+- Each campaign shows its assigned approvers in a dedicated Campaign team section; assigned reviewers can view the team without managing access.
 
 ## Archive
 

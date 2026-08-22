@@ -151,8 +151,6 @@ export async function listCampaignMembers(
   profile: Profile,
   campaignId: string,
 ): Promise<PortalCampaignMember[]> {
-  assertCanCreate(profile);
-
   const supabase = getSupabaseAdmin();
   const { data: campaign, error: campaignError } = await supabase
     .from("campaigns")
@@ -162,6 +160,23 @@ export async function listCampaignMembers(
 
   if (campaignError || !campaign) {
     throw new ApiError(campaignError?.message ?? "Campaign not found.", 404);
+  }
+
+  if (profile.role !== "Creative") {
+    const { data: assignment, error: assignmentError } = await supabase
+      .from("campaign_members")
+      .select("id")
+      .eq("campaign_id", campaign.id)
+      .eq("profile_id", profile.id)
+      .maybeSingle();
+
+    if (assignmentError) {
+      throw new ApiError(assignmentError.message, 500);
+    }
+
+    if (!assignment) {
+      throw new ApiError("You do not have access to this campaign.", 403);
+    }
   }
 
   const { data: memberRows, error: memberError } = await supabase
