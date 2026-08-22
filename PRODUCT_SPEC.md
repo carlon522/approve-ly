@@ -29,6 +29,8 @@ Approve.ly is a polished, mobile-first social media content approval portal for 
 - Image
 - Carousel
 
+Single-file uploads infer Video or Image from the selected file's MIME type or extension. Carousel remains a supported content type for existing records until multi-asset carousel uploads are implemented.
+
 Talent/influencer labels behave like content tags: existing names are searchable as the user types, Tab locks a selected match, and unmatched text is clearly labelled as a new talent before it is added.
 
 ## Platforms

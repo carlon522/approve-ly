@@ -303,6 +303,21 @@ const activitySeed: PortalActivity[] = [
   { id: "activity-3", kind: "archive", title: "3 files ready for final download", meta: "Today" },
 ];
 
+function inferUploadedContentType(file: File): "Video" | "Image" | undefined {
+  const videoExtension = /\.(avi|m4v|mkv|mov|mp4|webm)$/i;
+  const imageExtension = /\.(avif|gif|heic|heif|jpe?g|png|webp)$/i;
+
+  if (file.type.startsWith("video/") || videoExtension.test(file.name)) {
+    return "Video";
+  }
+
+  if (file.type.startsWith("image/") || imageExtension.test(file.name)) {
+    return "Image";
+  }
+
+  return undefined;
+}
+
 const defaultUploadDraft: UploadDraft = {
   dueAt: "2026-08-28T16:00",
   fileName: "",
@@ -1206,6 +1221,13 @@ export default function PortalClient({
       return;
     }
 
+    const inferredType = draft.file ? inferUploadedContentType(draft.file) : draft.type;
+    if (draft.file && !inferredType) {
+      notify("Choose a video or image file before uploading.", "warning");
+      return;
+    }
+    const uploadType: PortalContent["type"] = inferredType ?? draft.type;
+
     setUploadProgress({ label: "Preparing upload", value: 8 });
     let storageKey: string | undefined;
 
@@ -1266,7 +1288,7 @@ export default function PortalClient({
         storageKey,
         tags,
         title: draft.title.trim() || "Untitled content",
-        type: draft.type,
+        type: uploadType,
       },
       method: "POST",
     });
@@ -1305,7 +1327,7 @@ export default function PortalClient({
       status: "Submitted",
       tags,
       title: draft.title.trim() || "Untitled content",
-      type: draft.type,
+      type: uploadType,
       unresolved: 0,
       version: "V1",
       mediaUrl: "/demo/approval-preview.mp4",
@@ -5946,9 +5968,13 @@ function UploadModal({
     ...defaultUploadDraft,
     folder: defaultFolder,
   });
+  const [fileError, setFileError] = useState("");
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (fileError) {
+      return;
+    }
     onSubmit(draft);
   };
 
@@ -5961,20 +5987,12 @@ function UploadModal({
           placeholder="Content title"
           value={draft.title}
         />
-        <div className="grid gap-3 sm:grid-cols-2">
-          <SelectInput
-            label="Platform"
-            onChange={(value) => setDraft((item) => ({ ...item, platform: value as Platform }))}
-            options={["Instagram", "TikTok", "YouTube Shorts"]}
-            value={draft.platform}
-          />
-          <SelectInput
-            label="Type"
-            onChange={(value) => setDraft((item) => ({ ...item, type: value as PortalContent["type"] }))}
-            options={["Video", "Image", "Carousel"]}
-            value={draft.type}
-          />
-        </div>
+        <SelectInput
+          label="Platform"
+          onChange={(value) => setDraft((item) => ({ ...item, platform: value as Platform }))}
+          options={["Instagram", "TikTok", "YouTube Shorts"]}
+          value={draft.platform}
+        />
         <div className="grid gap-3 sm:grid-cols-2">
           <SelectInput
             label="Folder"
@@ -5993,31 +6011,63 @@ function UploadModal({
           onChange={(value) => setDraft((item) => ({ ...item, talent: value }))}
           value={draft.talent}
         />
-        <TextInput
-          label="Tags"
-          onChange={(value) => setDraft((item) => ({ ...item, tags: value }))}
-          value={draft.tags}
-        />
-        <label className="grid gap-1.5 text-sm font-medium">
-          File
+        <details className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Optional tags</summary>
+          <div className="mt-3">
+            <TextInput
+              label="Extra tags"
+              onChange={(value) => setDraft((item) => ({ ...item, tags: value }))}
+              value={draft.tags}
+            />
+          </div>
+        </details>
+        <div className="grid gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-zinc-900">File</span>
+            <span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-zinc-600">
+              {fileError ? "Unsupported file" : draft.file ? `${draft.type} detected` : "Type detected automatically"}
+            </span>
+          </div>
           <input
+            accept="video/*,image/*,.avi,.m4v,.mkv,.mov,.mp4,.webm,.avif,.gif,.heic,.heif,.jpeg,.jpg,.png,.webp"
+            aria-label="File"
             className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none transition file:mr-3 file:rounded-md file:border-0 file:bg-zinc-950 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white focus:border-zinc-400"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (!file) {
                 return;
               }
+
+              const detectedType = inferUploadedContentType(file);
+              setFileError(
+                detectedType
+                  ? ""
+                  : "We cannot detect this file as a video or image. Choose an MP4, MOV, WebM, JPG, PNG, GIF, WebP, or AVIF file.",
+              );
               setDraft((item) => ({
                 ...item,
                 file,
                 fileName: file.name,
                 fileSize: formatBytes(file.size),
                 mimeType: file.type || "application/octet-stream",
+                type: detectedType ?? item.type,
               }));
             }}
             type="file"
           />
-        </label>
+          {draft.file ? (
+            <p className="truncate text-xs font-medium text-zinc-600">
+              {draft.fileName} · {draft.fileSize}
+            </p>
+          ) : (
+            <p className="text-xs font-medium text-zinc-500">Choose a video or image to set the content type.</p>
+          )}
+          {fileError ? (
+            <p className="text-xs font-semibold text-red-700" role="alert">
+              {fileError}
+            </p>
+          ) : null}
+        </div>
         {progress ? (
           <div className="rounded-md border border-blue-100 bg-blue-50 p-3" role="status">
             <div className="flex items-center justify-between gap-3 text-xs font-semibold text-blue-900">
@@ -6047,7 +6097,7 @@ function UploadModal({
           </button>
           <button
             className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white"
-            disabled={Boolean(progress)}
+            disabled={Boolean(progress) || Boolean(fileError)}
             type="submit"
           >
             <Upload aria-hidden className="size-4" />

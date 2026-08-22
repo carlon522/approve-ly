@@ -3,8 +3,8 @@
 ## Creative Upload
 
 1. Creative selects company, campaign, and folder.
-2. Creative chooses video, image, or carousel.
-3. Creative enters title, platform, caption, hashtags, tags, and a due date/time selected from the native calendar control.
+2. Creative selects a file; the upload form infers Video or Image from its MIME type or extension, so no manual type choice is needed. Carousel remains available for existing content until multi-asset upload support is added.
+3. Creative enters title, platform, optional extra tags, and a due date/time selected from the native calendar control.
 4. Talent/influencer is selected from searchable existing tags or committed as a visibly labelled new talent tag with Tab.
 5. App requests a signed direct upload.
 6. Browser uploads original file to storage or video provider.

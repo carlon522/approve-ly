@@ -46,6 +46,7 @@
 - Dashboard deadline heat map renders late, close, on-time, and completed states with the correct red/green intensity; hover and focus reveal the content due details.
 - Dashboard heat map month controls remain usable at mobile width and clicking a marked day opens its most urgent content.
 - Upload and campaign due date controls open a native date/time picker; creating either record sends a structured `dueAt` value.
+- Upload form has no manual type selector; MP4/MOV/WebM files show Video detected, image files show Image detected, unsupported files show a clear error and disable Upload, and optional tags stay collapsed until opened.
 - Talent input filters existing names while typing, commits an existing match with Tab, locks the tag after commit, and labels unmatched text as `Adding new talent`.
 - Dashboard renders at mobile, tablet, and desktop sizes.
 - Mobile app shell keeps the bottom navigation fixed, clears page content, and preserves sign-out/reset actions in the sticky header.
